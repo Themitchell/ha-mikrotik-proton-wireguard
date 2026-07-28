@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "proton-mikrotik-wg"
+version = "0.1.0"
+description = "Home Assistant integration: Proton WireGuard on a single MikroTik interface"
+requires-python = ">=3.12"
+dependencies = ["voluptuous"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[tool.pytest.ini_options]
+pythonpath = ["custom_components"]
+testpaths = ["tests"]

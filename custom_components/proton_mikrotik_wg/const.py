@@ -2,3 +2,6 @@
 
 DOMAIN = "proton_mikrotik_wg"
 DEFAULT_WG_INTERFACE = "wg-proton"
+
+CONF_USERNAME = "username"
+CONF_PASSWORD = "password"

@@ -1,0 +1,20 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Proton VPN",
+        "description": "Enter your Proton account credentials. These are used to create and rotate WireGuard configurations. MikroTik connection settings come in a later step.",
+        "data": {
+          "username": "Proton username / email",
+          "password": "Proton password"
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "This Proton account is already configured"
+    },
+    "error": {
+      "unknown": "Unexpected error"
+    }
+  }
+}
