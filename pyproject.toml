@@ -10,11 +10,12 @@ requires-python = ">=3.12"
 dependencies = ["voluptuous", "proton-client>=0.5.1"]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "pytest-cov>=5"]
+dev = ["pytest>=8", "pytest-cov>=5", "pytest-asyncio>=0.24"]
 
 [tool.pytest.ini_options]
 pythonpath = ["custom_components"]
 testpaths = ["tests"]
+asyncio_mode = "auto"
 addopts = [
   "--cov=proton_mikrotik_wg",
   "--cov-report=term-missing",
@@ -24,11 +25,6 @@ addopts = [
 [tool.coverage.run]
 branch = true
 source = ["custom_components/proton_mikrotik_wg"]
-omit = [
-  # Home Assistant wiring — covered once pytest-homeassistant harness exists
-  "*/config_flow.py",
-  "*/__init__.py",
-]
 
 [tool.coverage.report]
 fail_under = 100

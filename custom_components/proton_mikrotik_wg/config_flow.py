@@ -44,6 +44,7 @@ class ProtonMikroTikWgConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     VERSION = 1
 
     def __init__(self) -> None:
+        super().__init__()
         self._username: str | None = None
         self._pending_session: Any = None
 

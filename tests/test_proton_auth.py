@@ -134,6 +134,69 @@ def test_submit_two_factor_rejects_lingering_twofactor_scope():
         submit_two_factor(session, "123456", username="user@proton.me")
 
 
+def test_login_rejects_incomplete_access_token():
+    session = MagicMock()
+    session.authenticate.return_value = ["full"]
+    session.UID = "uid"
+    session.AccessToken = None
+    session.RefreshToken = "refresh"
+    with pytest.raises(InvalidCredentials):
+        login_with_password(
+            "user@proton.me",
+            "secret",
+            create_session=lambda: session,
+        )
+
+
+def test_login_rejects_incomplete_refresh_token():
+    session = MagicMock()
+    session.authenticate.return_value = ["full"]
+    session.UID = "uid"
+    session.AccessToken = "access"
+    session.RefreshToken = None
+    with pytest.raises(InvalidCredentials):
+        login_with_password(
+            "user@proton.me",
+            "secret",
+            create_session=lambda: session,
+        )
+
+
+def test_login_maps_network_error_names():
+    session = MagicMock()
+
+    class NewConnectionError(Exception):
+        pass
+
+    session.authenticate.side_effect = NewConnectionError("offline")
+    with pytest.raises(InvalidCredentials):
+        login_with_password(
+            "user@proton.me",
+            "secret",
+            create_session=lambda: session,
+        )
+
+
+def test_scopes_need_2fa_empty_scope():
+    assert scopes_need_2fa([]) is False
+    assert scopes_need_2fa(()) is False
+
+
+def test_login_maps_proton_network_error_name():
+    session = MagicMock()
+
+    class ProtonNetworkError(Exception):
+        pass
+
+    session.authenticate.side_effect = ProtonNetworkError("timeout")
+    with pytest.raises(InvalidCredentials):
+        login_with_password(
+            "user@proton.me",
+            "secret",
+            create_session=lambda: session,
+        )
+
+
 def test_default_session_factory_builds_proton_session():
     import sys
     from types import ModuleType
