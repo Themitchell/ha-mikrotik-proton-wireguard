@@ -1,0 +1,10 @@
+{
+  "domain": "proton_mikrotik_wg",
+  "name": "Proton MikroTik WireGuard",
+  "codeowners": [],
+  "config_flow": true,
+  "documentation": "https://github.com/themitchell/mikrotik-proton-wireguard",
+  "iot_class": "local_polling",
+  "requirements": [],
+  "version": "0.1.0"
+}
