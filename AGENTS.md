@@ -34,7 +34,13 @@
   in the same commit as the previous one unless the user asks.
 - Use injected fakes/mocks for HTTP and RouterOS; tests must not require a
   live Proton account, MikroTik, or running Home Assistant.
-- Aim for high coverage on library code; close gaps as you go.
+- Aim for 100% code coverage on library modules (`proton_auth`, `schemas`,
+  `const`, etc.). `pytest` is configured with `--cov-fail-under=100`.
+  Home Assistant entry modules (`config_flow.py`, `__init__.py`) are omitted
+  from the gate until a HA test harness is added — do not put business logic
+  only in those files.
+- Cover new code and close gaps shown by
+  `pytest --cov-report=term-missing`.
 - Prefer clear application errors while preserving underlying exceptions as
   causes.
 - Add concise docstrings to modules and public classes, functions, and
@@ -71,5 +77,5 @@
 ## Commands
 
 - `python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"` — local setup.
-- `.venv/bin/pytest` — run unit tests.
+- `.venv/bin/pytest` — run unit tests with 100% coverage gate.
 - `.venv/bin/pytest -q` — quiet test run after each TDD step.

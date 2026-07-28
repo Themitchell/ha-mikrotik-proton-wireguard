@@ -3,10 +3,17 @@
     "step": {
       "user": {
         "title": "Proton VPN",
-        "description": "Enter your Proton account credentials. These are used to create and rotate WireGuard configurations. MikroTik connection settings come in a later step.",
+        "description": "Enter your Proton account credentials. Login is verified before continuing. If 2FA is enabled you will be asked for a TOTP code next.",
         "data": {
           "username": "Proton username / email",
           "password": "Proton password"
+        }
+      },
+      "two_factor": {
+        "title": "Two-factor authentication",
+        "description": "Enter the 6-digit code from your authenticator app.",
+        "data": {
+          "totp": "Authentication code"
         }
       }
     },
@@ -14,6 +21,7 @@
       "already_configured": "This Proton account is already configured"
     },
     "error": {
+      "invalid_auth": "Invalid credentials or two-factor code",
       "unknown": "Unexpected error"
     }
   }
