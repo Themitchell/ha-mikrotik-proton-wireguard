@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from proton_mikrotik_wg.config_flow import ProtonMikroTikWgConfigFlow, _entry_data
+from proton_mikrotik_wg.config_flow import ProtonMikroTikWgConfigFlow
 from proton_mikrotik_wg.const import (
     CONF_ACCESS_TOKEN,
     CONF_PASSWORD,
@@ -21,6 +21,7 @@ from proton_mikrotik_wg.proton_auth import (
     ProtonSessionData,
     TwoFactorRequired,
 )
+from proton_mikrotik_wg.session_store import entry_data_from_session
 
 
 def _session_data(**overrides):
@@ -42,7 +43,7 @@ def flow(hass):
 
 
 def test_entry_data_maps_session_fields():
-    data = _entry_data(_session_data())
+    data = entry_data_from_session(_session_data())
     assert data[CONF_USERNAME] == "user@proton.me"
     assert data[CONF_UID] == "uid-1"
     assert data[CONF_ACCESS_TOKEN] == "access-1"

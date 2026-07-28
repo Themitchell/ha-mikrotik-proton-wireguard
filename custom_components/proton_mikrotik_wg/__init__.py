@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from .const import DOMAIN
+from .session_manager import ProtonSessionManager
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
@@ -14,15 +15,20 @@ PLATFORMS: list[str] = []
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Set up the integration from a config entry."""
+    """Set up Proton session management from a config entry."""
     hass.data.setdefault(DOMAIN, {})
-    hass.data[DOMAIN][entry.entry_id] = entry.data
+    manager = ProtonSessionManager(hass, entry)
+    await manager.async_setup()
+    hass.data[DOMAIN][entry.entry_id] = manager
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Unload a config entry."""
+    """Unload a config entry and stop session refresh."""
+    manager = hass.data.get(DOMAIN, {}).get(entry.entry_id)
+    if manager is not None:
+        await manager.async_unload()
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
         hass.data[DOMAIN].pop(entry.entry_id, None)

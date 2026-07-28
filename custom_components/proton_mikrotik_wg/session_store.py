@@ -24,3 +24,14 @@ def session_data_from_entry(data: Mapping[str, Any]) -> ProtonSessionData:
         refresh_token=data[CONF_REFRESH_TOKEN],
         scope=tuple(scope),
     )
+
+
+def entry_data_from_session(session: ProtonSessionData) -> dict[str, Any]:
+    """Serialize session tokens for config entry storage."""
+    return {
+        CONF_USERNAME: session.username,
+        CONF_UID: session.uid,
+        CONF_ACCESS_TOKEN: session.access_token,
+        CONF_REFRESH_TOKEN: session.refresh_token,
+        CONF_SCOPE: list(session.scope),
+    }

@@ -5,7 +5,11 @@ from proton_mikrotik_wg.const import (
     CONF_UID,
     CONF_USERNAME,
 )
-from proton_mikrotik_wg.session_store import session_data_from_entry
+from proton_mikrotik_wg.proton_auth import ProtonSessionData
+from proton_mikrotik_wg.session_store import (
+    entry_data_from_session,
+    session_data_from_entry,
+)
 
 
 def test_session_data_from_entry_round_trip():
@@ -33,3 +37,18 @@ def test_session_data_from_entry_defaults_missing_scope():
     }
     data = session_data_from_entry(entry)
     assert data.scope == ()
+
+
+def test_entry_data_from_session_round_trip():
+    session = ProtonSessionData(
+        username="user@proton.me",
+        uid="uid-1",
+        access_token="access-2",
+        refresh_token="refresh-2",
+        scope=("full",),
+    )
+    entry = entry_data_from_session(session)
+    assert entry[CONF_ACCESS_TOKEN] == "access-2"
+    assert entry[CONF_REFRESH_TOKEN] == "refresh-2"
+    assert entry[CONF_SCOPE] == ["full"]
+    assert session_data_from_entry(entry) == session

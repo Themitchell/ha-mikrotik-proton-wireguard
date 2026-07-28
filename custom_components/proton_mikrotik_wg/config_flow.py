@@ -7,35 +7,16 @@ from typing import Any
 from homeassistant import config_entries
 from homeassistant.data_entry_flow import FlowResult
 
-from .const import (
-    CONF_ACCESS_TOKEN,
-    CONF_PASSWORD,
-    CONF_REFRESH_TOKEN,
-    CONF_SCOPE,
-    CONF_TOTP,
-    CONF_UID,
-    CONF_USERNAME,
-    DOMAIN,
-)
+from .const import CONF_PASSWORD, CONF_TOTP, CONF_USERNAME, DOMAIN
 from .proton_auth import (
     InvalidCredentials,
-    ProtonSessionData,
     TwoFactorRequired,
     default_session_factory,
     login_with_password,
     submit_two_factor,
 )
 from .schemas import PROTON_CREDENTIALS_SCHEMA, PROTON_TWO_FACTOR_SCHEMA
-
-
-def _entry_data(session: ProtonSessionData) -> dict[str, Any]:
-    return {
-        CONF_USERNAME: session.username,
-        CONF_UID: session.uid,
-        CONF_ACCESS_TOKEN: session.access_token,
-        CONF_REFRESH_TOKEN: session.refresh_token,
-        CONF_SCOPE: list(session.scope),
-    }
+from .session_store import entry_data_from_session
 
 
 class ProtonMikroTikWgConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -79,7 +60,7 @@ class ProtonMikroTikWgConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             else:
                 return self.async_create_entry(
                     title=f"Proton VPN ({username})",
-                    data=_entry_data(session_data),
+                    data=entry_data_from_session(session_data),
                 )
 
         return self.async_show_form(
@@ -112,7 +93,7 @@ class ProtonMikroTikWgConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             else:
                 return self.async_create_entry(
                     title=f"Proton VPN ({self._username})",
-                    data=_entry_data(session_data),
+                    data=entry_data_from_session(session_data),
                 )
 
         return self.async_show_form(
