@@ -19,8 +19,10 @@ tests/
 4. Enter Proton account username and password (login is verified).
 5. If 2FA is enabled, enter the TOTP code.
 
-The config entry stores Proton session tokens (not your password). MikroTik
-router settings and tunnel provisioning come in later steps.
+The config entry stores Proton session tokens (not your password). Use
+`ProtonAuthClient` to restore a session from those tokens and call
+`.refresh()` before API work (or after a 401). MikroTik router settings and
+tunnel provisioning come in later steps.
 
 ## Tests
 

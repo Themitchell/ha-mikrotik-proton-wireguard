@@ -39,6 +39,9 @@ class ProtonSession(Protocol):
     def provide_2fa(self, code: str) -> list[str]:
         ...
 
+    def refresh(self) -> None:
+        ...
+
     @property
     def UID(self) -> str | None:
         ...
@@ -49,6 +52,10 @@ class ProtonSession(Protocol):
 
     @property
     def RefreshToken(self) -> str | None:
+        ...
+
+    @property
+    def Scope(self) -> list[str]:
         ...
 
 
@@ -116,12 +123,84 @@ def submit_two_factor(
     return _session_data(username, session, scope)
 
 
+def refresh_session(session: ProtonSession, *, username: str) -> ProtonSessionData:
+    """Refresh access/refresh tokens on an authenticated Proton session."""
+    try:
+        session.refresh()
+    except Exception as err:  # noqa: BLE001
+        raise InvalidCredentials("session refresh failed") from err
+    scope = list(session.Scope or [])
+    return _session_data(username, session, scope)
+
+
+DEFAULT_API_URL = "https://vpn-api.proton.me"
+DEFAULT_APP_VERSION = "linux-vpn@4.3.0"
+DEFAULT_USER_AGENT = "ProtonVPN/4.3.0 (Linux; HomeAssistant)"
+
+
+def session_dump_from_data(data: ProtonSessionData) -> dict[str, Any]:
+    """Build a proton.api.Session.load()-compatible dump from stored tokens."""
+    return {
+        "api_url": DEFAULT_API_URL,
+        "appversion": DEFAULT_APP_VERSION,
+        "User-Agent": DEFAULT_USER_AGENT,
+        "cookies": {},
+        "session_data": {
+            "UID": data.uid,
+            "AccessToken": data.access_token,
+            "RefreshToken": data.refresh_token,
+            "Scope": list(data.scope),
+        },
+    }
+
+
+SessionLoader = Callable[[dict[str, Any]], ProtonSession]
+
+
+def default_session_loader(dump: dict[str, Any]) -> Any:
+    """Restore a proton.api.Session from a dump dict."""
+    from proton.api import Session
+
+    return Session.load(dump, TLSPinning=True)
+
+
+class ProtonAuthClient:
+    """Holds Proton session tokens and refreshes them for API use."""
+
+    def __init__(
+        self,
+        data: ProtonSessionData,
+        *,
+        load_session: SessionLoader = default_session_loader,
+    ) -> None:
+        self._data = data
+        self._load_session = load_session
+        self._live: ProtonSession | None = None
+
+    @property
+    def data(self) -> ProtonSessionData:
+        """Current persisted token set."""
+        return self._data
+
+    def live_session(self) -> ProtonSession:
+        """Return a hydrated Proton client for the current tokens."""
+        if self._live is None:
+            self._live = self._load_session(session_dump_from_data(self._data))
+        return self._live
+
+    def refresh(self) -> ProtonSessionData:
+        """Refresh tokens, update stored data, and return the new set."""
+        updated = refresh_session(self.live_session(), username=self._data.username)
+        self._data = updated
+        return updated
+
+
 def default_session_factory() -> Any:
     """Create a real proton.api.Session for production use."""
     from proton.api import Session
 
     return Session(
-        api_url="https://vpn-api.proton.me",
-        appversion="linux-vpn@4.3.0",
-        user_agent="ProtonVPN/4.3.0 (Linux; HomeAssistant)",
+        api_url=DEFAULT_API_URL,
+        appversion=DEFAULT_APP_VERSION,
+        user_agent=DEFAULT_USER_AGENT,
     )
