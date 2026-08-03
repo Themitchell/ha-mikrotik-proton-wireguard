@@ -3,10 +3,10 @@
     "step": {
       "user": {
         "title": "Proton VPN",
-        "description": "Enter your Proton account credentials. Login is verified before continuing. If 2FA is enabled you will be asked for a TOTP code next.",
+        "description": "Use your Proton Account email or account username and password (the same as account.proton.me). Do not use OpenVPN/IKEv2 credentials from the VPN dashboard.",
         "data": {
-          "username": "Proton username / email",
-          "password": "Proton password"
+          "username": "Proton account email or username",
+          "password": "Proton account password"
         }
       },
       "two_factor": {

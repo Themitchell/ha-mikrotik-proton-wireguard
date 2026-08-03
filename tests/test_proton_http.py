@@ -77,6 +77,7 @@ def test_authenticate_stores_tokens_without_gpg(session):
         "Salt": base64.b64encode(b"salt").decode(),
         "Version": 4,
         "SRPSession": "srp-1",
+        "Username": "CanonicalUser",
     }
     auth = {
         "Code": 1000,
@@ -94,6 +95,9 @@ def test_authenticate_stores_tokens_without_gpg(session):
     assert session.AccessToken == "access-1"
     assert session.RefreshToken == "refresh-1"
     assert session._http.post.call_count == 2
+    auth_payload = session._http.post.call_args_list[1].kwargs["json"]
+    # Proton canonicalizes the account name in auth/info; /auth must use that.
+    assert auth_payload["Username"] == "CanonicalUser"
 
 
 def test_authenticate_maps_wrong_password(session):

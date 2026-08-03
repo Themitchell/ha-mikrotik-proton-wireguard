@@ -128,6 +128,9 @@ class ProtonHttpSession:
         """SRP login against Proton; returns the session scope list."""
         self.logout()
         info = self.api_request("/auth/info", {"Username": username})
+        # Prefer Proton's canonical account name from auth/info (often differs
+        # from email input, e.g. "User" vs "user@proton.me").
+        auth_username = str(info.get("Username") or username)
         modulus = extract_srp_modulus(info["Modulus"])
         server_challenge = base64.b64decode(info["ServerEphemeral"])
         salt = base64.b64decode(info["Salt"])
@@ -142,7 +145,7 @@ class ProtonHttpSession:
         auth = self.api_request(
             "/auth",
             {
-                "Username": username,
+                "Username": auth_username,
                 "ClientEphemeral": base64.b64encode(client_challenge).decode("utf8"),
                 "ClientProof": base64.b64encode(client_proof).decode("utf8"),
                 "SRPSession": info["SRPSession"],
