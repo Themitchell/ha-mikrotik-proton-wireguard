@@ -3,7 +3,7 @@
   "name": "Proton MikroTik WireGuard",
   "codeowners": [],
   "config_flow": true,
-  "documentation": "https://github.com/themitchell/mikrotik-proton-wireguard",
+  "documentation": "https://github.com/Themitchell/ha-mikrotik-proton-wireguard",
   "iot_class": "local_polling",
   "requirements": ["proton-client>=0.5.1"],
   "version": "0.1.0"

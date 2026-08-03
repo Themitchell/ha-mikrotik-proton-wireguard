@@ -13,11 +13,23 @@ tests/
 
 ## Setup (user)
 
-1. Copy `custom_components/proton_mikrotik_wg` to HA `/config/custom_components/`.
-2. Restart Home Assistant.
+### HACS (recommended)
+
+1. HACS → Custom repositories → add
+   `https://github.com/Themitchell/ha-mikrotik-proton-wireguard`
+   (category: Integration).
+2. Download **Proton MikroTik WireGuard**, then restart Home Assistant.
 3. **Settings → Devices & services → Add integration → Proton MikroTik WireGuard**.
 4. Enter Proton account username and password (login is verified).
 5. If 2FA is enabled, enter the TOTP code.
+
+HACS needs a GitHub **Release** with a semver tag (e.g. `0.1.0`);
+installing from a bare commit SHA will fail.
+
+### Manual
+
+1. Copy `custom_components/proton_mikrotik_wg` to HA `/config/custom_components/`.
+2. Restart Home Assistant, then Add integration as above.
 
 The integration then:
 
