@@ -13,6 +13,12 @@ PROTON_CREDENTIALS_SCHEMA = vol.Schema(
     }
 )
 
+PROTON_REAUTH_SCHEMA = vol.Schema(
+    {
+        vol.Required(CONF_PASSWORD): str,
+    }
+)
+
 PROTON_TWO_FACTOR_SCHEMA = vol.Schema(
     {
         vol.Required(CONF_TOTP): str,

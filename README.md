@@ -37,9 +37,11 @@ The integration then:
 - Refreshes tokens on startup
 - Refreshes again every 12 hours
 - Marks the entry as needing reauth if refresh fails
+- Prompts for password (and 2FA if needed) to renew the session
 
 Login uses a gpg-free HTTP/SRP client so it works on typical Home Assistant
-containers (no system ``gpg`` required).
+containers (no system ``gpg`` required). Use your Proton **account** email
+(e.g. ``you@proton.me``), not OpenVPN credentials.
 
 ## Tests
 

@@ -33,6 +33,7 @@ class ConfigFlow:
     def __init__(self) -> None:
         self.hass: Any = None
         self.unique_id: str | None = None
+        self.context: dict[str, Any] = {}
         self._abort_configured = False
 
     async def async_set_unique_id(self, unique_id: str) -> None:
@@ -65,6 +66,19 @@ class ConfigFlow:
             "title": title,
             "data": data,
         }
+
+    def async_abort(self, *, reason: str) -> dict[str, Any]:
+        return {"type": FlowResultType.ABORT, "reason": reason}
+
+    def async_update_reload_and_abort(
+        self,
+        entry: Any,
+        *,
+        data: dict[str, Any],
+        reason: str = "reauth_successful",
+    ) -> dict[str, Any]:
+        self.hass.config_entries.async_update_entry(entry, data=data)
+        return self.async_abort(reason=reason)
 
 
 def install_homeassistant_stubs() -> None:

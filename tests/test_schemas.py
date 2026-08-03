@@ -3,6 +3,7 @@ import voluptuous as vol
 
 from proton_mikrotik_wg.schemas import (
     PROTON_CREDENTIALS_SCHEMA,
+    PROTON_REAUTH_SCHEMA,
     PROTON_TWO_FACTOR_SCHEMA,
 )
 
@@ -24,3 +25,9 @@ def test_proton_two_factor_schema_requires_totp():
     assert PROTON_TWO_FACTOR_SCHEMA({"totp": "123456"})["totp"] == "123456"
     with pytest.raises(vol.Invalid):
         PROTON_TWO_FACTOR_SCHEMA({})
+
+
+def test_proton_reauth_schema_requires_password_only():
+    assert PROTON_REAUTH_SCHEMA({"password": "secret"})["password"] == "secret"
+    with pytest.raises(vol.Invalid):
+        PROTON_REAUTH_SCHEMA({})

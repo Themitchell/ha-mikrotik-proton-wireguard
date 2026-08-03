@@ -9,6 +9,13 @@
           "password": "Proton account password"
         }
       },
+      "reauth_confirm": {
+        "title": "Reauthenticate Proton VPN",
+        "description": "Stored Proton tokens expired. Enter your Proton account password to renew the session.",
+        "data": {
+          "password": "Proton account password"
+        }
+      },
       "two_factor": {
         "title": "Two-factor authentication",
         "description": "Enter the 6-digit code from your authenticator app.",
@@ -18,7 +25,8 @@
       }
     },
     "abort": {
-      "already_configured": "This Proton account is already configured"
+      "already_configured": "This Proton account is already configured",
+      "reauth_successful": "Proton session renewed"
     },
     "error": {
       "invalid_auth": "Invalid credentials or two-factor code",
