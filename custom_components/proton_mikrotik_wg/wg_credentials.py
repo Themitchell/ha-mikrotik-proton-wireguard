@@ -29,6 +29,7 @@ class ProtonLogicalServer:
     name: str
     entry_ip: str
     x25519_public_key: str
+    load: int = 100
 
 
 @dataclass(frozen=True)
@@ -53,6 +54,52 @@ class WireGuardCredential:
     client_address: str
     expiration_time: int
     dns: str | None = None
+
+
+def generate_wireguard_keypair() -> WireGuardKeyPair:
+    """Generate a local WireGuard X25519 keypair (no Proton API call)."""
+    import base64
+
+    from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
+
+    private = X25519PrivateKey.generate()
+    private_raw = private.private_bytes_raw()
+    public_raw = private.public_key().public_bytes_raw()
+    return WireGuardKeyPair(
+        private_key=base64.b64encode(private_raw).decode("ascii"),
+        public_key=base64.b64encode(public_raw).decode("ascii"),
+    )
+
+
+def list_logical_servers(session: ProtonApiSession) -> list[ProtonLogicalServer]:
+    """Fetch online shared Proton logical servers with at least one instance."""
+    payload = session.api_request("/vpn/logicals", method="get")
+    servers: list[ProtonLogicalServer] = []
+    for logical in payload.get("LogicalServers") or []:
+        if logical.get("Status") != 1:
+            continue
+        instances = logical.get("Servers") or []
+        if not instances:
+            continue
+        instance = instances[0]
+        servers.append(
+            ProtonLogicalServer(
+                name=str(logical["Name"]),
+                entry_ip=str(instance["EntryIP"]),
+                x25519_public_key=str(instance["X25519PublicKey"]),
+                load=int(logical.get("Load") or 100),
+            )
+        )
+    return servers
+
+
+def pick_least_loaded_server(
+    servers: list[ProtonLogicalServer],
+) -> ProtonLogicalServer:
+    """Return the online server with the lowest reported load."""
+    if not servers:
+        raise ValueError("no Proton servers available")
+    return min(servers, key=lambda server: server.load)
 
 
 def create_wireguard_credential(
@@ -91,4 +138,21 @@ def create_wireguard_credential(
         client_address=DEFAULT_CLIENT_ADDRESS,
         expiration_time=int(response["ExpirationTime"]),
         dns=None,
+    )
+
+
+def provision_wireguard_credential(
+    session: ProtonApiSession,
+    *,
+    device_name: str,
+    server: ProtonLogicalServer | None = None,
+) -> WireGuardCredential:
+    """Generate keys and register a certificate for the least-loaded server."""
+    chosen = server or pick_least_loaded_server(list_logical_servers(session))
+    keys = generate_wireguard_keypair()
+    return create_wireguard_credential(
+        session,
+        server=chosen,
+        keys=keys,
+        device_name=device_name,
     )

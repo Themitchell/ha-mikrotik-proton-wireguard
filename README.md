@@ -39,6 +39,12 @@ The integration then:
 - Marks the entry as needing reauth if refresh fails
 - Prompts for password (and 2FA if needed) to renew the session
 
+Library support (not yet exposed as HA entities/services):
+
+- Generate a local WireGuard keypair
+- List Proton logical servers and pick the least-loaded
+- Register a persistent WireGuard certificate (no Proton DNS)
+
 Login uses a gpg-free HTTP/SRP client so it works on typical Home Assistant
 containers (no system ``gpg`` required). Use your Proton **account** email
 (e.g. ``you@proton.me``), not OpenVPN credentials.

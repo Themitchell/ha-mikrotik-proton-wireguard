@@ -86,3 +86,102 @@ def test_generate_wireguard_keypair_returns_base64_keys():
     # Standard WireGuard keys are 32 raw bytes → 44 chars base64 with padding.
     assert len(keys.private_key) == 44
     assert len(keys.public_key) == 44
+
+
+def test_list_logical_servers_parses_online_instances():
+    from proton_mikrotik_wg.wg_credentials import list_logical_servers
+
+    session = MagicMock()
+    session.api_request.return_value = {
+        "Code": 1000,
+        "LogicalServers": [
+            {
+                "Name": "UK#1",
+                "Status": 1,
+                "Load": 12,
+                "Servers": [
+                    {
+                        "EntryIP": "1.2.3.4",
+                        "X25519PublicKey": "server-wg-pk==",
+                    }
+                ],
+            },
+            {
+                "Name": "UK#2",
+                "Status": 0,  # offline
+                "Load": 1,
+                "Servers": [
+                    {
+                        "EntryIP": "5.6.7.8",
+                        "X25519PublicKey": "other==",
+                    }
+                ],
+            },
+            {
+                "Name": "UK#3",
+                "Status": 1,
+                "Load": 40,
+                "Servers": [],  # no instances
+            },
+        ],
+    }
+
+    servers = list_logical_servers(session)
+    assert len(servers) == 1
+    assert servers[0].name == "UK#1"
+    assert servers[0].entry_ip == "1.2.3.4"
+    assert servers[0].load == 12
+    session.api_request.assert_called_once_with("/vpn/logicals", method="get")
+
+
+def test_pick_least_loaded_server():
+    from proton_mikrotik_wg.wg_credentials import pick_least_loaded_server
+
+    servers = [
+        ProtonLogicalServer("UK#1", "1.1.1.1", "a==", load=40),
+        ProtonLogicalServer("UK#2", "2.2.2.2", "b==", load=8),
+        ProtonLogicalServer("UK#3", "3.3.3.3", "c==", load=20),
+    ]
+    assert pick_least_loaded_server(servers).name == "UK#2"
+
+
+def test_pick_least_loaded_server_requires_servers():
+    import pytest
+    from proton_mikrotik_wg.wg_credentials import pick_least_loaded_server
+
+    with pytest.raises(ValueError, match="no Proton servers"):
+        pick_least_loaded_server([])
+
+
+def test_provision_wireguard_credential_generates_keys_and_registers():
+    from proton_mikrotik_wg.wg_credentials import provision_wireguard_credential
+
+    session = MagicMock()
+    session.api_request.side_effect = [
+        {
+            "Code": 1000,
+            "LogicalServers": [
+                {
+                    "Name": "UK#1",
+                    "Status": 1,
+                    "Load": 5,
+                    "Servers": [
+                        {"EntryIP": "1.2.3.4", "X25519PublicKey": "server-wg-pk=="}
+                    ],
+                }
+            ],
+        },
+        {
+            "Code": 1000,
+            "SerialNumber": "sn-9",
+            "DeviceName": "ha-wg-proton",
+            "ExpirationTime": 1_800_000_000,
+        },
+    ]
+
+    cred = provision_wireguard_credential(session, device_name="ha-wg-proton")
+    assert cred.serial_number == "sn-9"
+    assert cred.endpoint_host == "1.2.3.4"
+    assert cred.dns is None
+    assert len(cred.client_private_key) == 44
+    assert session.api_request.call_count == 2
