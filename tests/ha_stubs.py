@@ -82,11 +82,24 @@ class ConfigFlow:
 
 
 class OptionsFlow:
-    """Enough of HA OptionsFlow for unit-testing configure steps."""
+    """Enough of HA OptionsFlow for unit-testing configure steps.
 
-    def __init__(self, config_entry: Any) -> None:
-        self.config_entry = config_entry
+    Mirrors Home Assistant 2024.11+: ``config_entry`` is a read-only property.
+    """
+
+    def __init__(self) -> None:
         self.hass: Any = None
+        self._config_entry: Any = None
+
+    @property
+    def config_entry(self) -> Any:
+        return self._config_entry
+
+    @config_entry.setter
+    def config_entry(self, value: Any) -> None:
+        raise AttributeError(
+            "property 'config_entry' of 'OptionsFlow' object has no setter"
+        )
 
     def async_show_form(
         self,

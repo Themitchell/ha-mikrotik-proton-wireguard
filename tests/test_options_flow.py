@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -28,15 +28,19 @@ from proton_mikrotik_wg.mikrotik_client import (
 @pytest.fixture
 def options_flow(hass):
     entry = SimpleNamespace(options={})
-    flow = ProtonMikroTikWgOptionsFlow(entry)
+    flow = ProtonMikroTikWgOptionsFlow()
     flow.hass = hass
+    # HA injects the entry; do not assign the read-only config_entry property.
+    flow._config_entry = entry
     return flow
 
 
-def test_async_get_options_flow_returns_handler():
+def test_async_get_options_flow_returns_handler_without_setting_config_entry():
     entry = SimpleNamespace(options={})
     handler = ProtonMikroTikWgConfigFlow.async_get_options_flow(entry)
     assert isinstance(handler, ProtonMikroTikWgOptionsFlow)
+    with pytest.raises(AttributeError, match="no setter"):
+        handler.config_entry = entry
 
 
 @pytest.mark.asyncio
