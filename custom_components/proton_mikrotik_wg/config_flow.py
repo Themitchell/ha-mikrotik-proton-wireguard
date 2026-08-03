@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from homeassistant import config_entries
@@ -9,6 +10,7 @@ from homeassistant.data_entry_flow import FlowResult
 
 from .const import CONF_PASSWORD, CONF_TOTP, CONF_USERNAME, DOMAIN
 from .proton_auth import (
+    CannotConnect,
     InvalidCredentials,
     TwoFactorRequired,
     default_session_factory,
@@ -17,6 +19,8 @@ from .proton_auth import (
 )
 from .schemas import PROTON_CREDENTIALS_SCHEMA, PROTON_TWO_FACTOR_SCHEMA
 from .session_store import entry_data_from_session
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class ProtonMikroTikWgConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -55,7 +59,10 @@ class ProtonMikroTikWgConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 return await self.async_step_two_factor()
             except InvalidCredentials:
                 errors["base"] = "invalid_auth"
+            except CannotConnect:
+                errors["base"] = "cannot_connect"
             except Exception:  # noqa: BLE001
+                _LOGGER.exception("Unexpected Proton login failure")
                 errors["base"] = "unknown"
             else:
                 return self.async_create_entry(
@@ -88,7 +95,10 @@ class ProtonMikroTikWgConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 )
             except InvalidCredentials:
                 errors["base"] = "invalid_auth"
+            except CannotConnect:
+                errors["base"] = "cannot_connect"
             except Exception:  # noqa: BLE001
+                _LOGGER.exception("Unexpected Proton 2FA failure")
                 errors["base"] = "unknown"
             else:
                 return self.async_create_entry(

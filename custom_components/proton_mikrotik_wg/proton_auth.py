@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable, Protocol
+from typing import Any, Callable, NoReturn, Protocol
 
 
 class InvalidCredentials(Exception):
     """Username/password or 2FA code was rejected."""
+
+
+class CannotConnect(Exception):
+    """Network or transport failure talking to Proton."""
 
 
 class TwoFactorRequired(Exception):
@@ -17,6 +21,29 @@ class TwoFactorRequired(Exception):
         super().__init__("two-factor authentication required")
         self.session = session
         self.data = data
+
+
+# Exception class names from proton.exceptions (avoid hard import for tests).
+_AUTH_ERROR_NAMES = frozenset({"ProtonError"})
+_CONNECT_ERROR_NAMES = frozenset(
+    {
+        "ProtonNetworkError",
+        "NewConnectionError",
+        "ConnectionTimeOutError",
+        "TLSPinningError",
+        "UnknownConnectionError",
+    }
+)
+
+
+def _reraise_mapped_proton_error(err: Exception) -> NoReturn:
+    """Map proton-client errors to InvalidCredentials or CannotConnect."""
+    name = type(err).__name__
+    if name in _AUTH_ERROR_NAMES:
+        raise InvalidCredentials(str(err)) from err
+    if name in _CONNECT_ERROR_NAMES:
+        raise CannotConnect(str(err)) from err
+    raise err
 
 
 @dataclass(frozen=True)
@@ -95,11 +122,7 @@ def login_with_password(
     except ValueError as err:
         raise InvalidCredentials("invalid username or password") from err
     except Exception as err:  # noqa: BLE001 — map proton client errors
-        # proton.exceptions.ProtonError and network failures
-        name = type(err).__name__
-        if name in {"ProtonError", "ProtonNetworkError", "NewConnectionError"}:
-            raise InvalidCredentials(str(err)) from err
-        raise
+        _reraise_mapped_proton_error(err)
 
     data = _session_data(username, session, scope)
     if scopes_need_2fa(scope):
@@ -161,7 +184,8 @@ def default_session_loader(dump: dict[str, Any]) -> Any:
     """Restore a proton.api.Session from a dump dict."""
     from proton.api import Session
 
-    return Session.load(dump, TLSPinning=True)
+    # Pinning adapter is incompatible with current urllib3; normal TLS only.
+    return Session.load(dump, TLSPinning=False)
 
 
 class ProtonAuthClient:
@@ -203,4 +227,6 @@ def default_session_factory() -> Any:
         api_url=DEFAULT_API_URL,
         appversion=DEFAULT_APP_VERSION,
         user_agent=DEFAULT_USER_AGENT,
+        # Pinning adapter is incompatible with current urllib3; normal TLS only.
+        TLSPinning=False,
     )

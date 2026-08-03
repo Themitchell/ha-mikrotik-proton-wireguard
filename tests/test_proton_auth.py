@@ -3,6 +3,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from proton_mikrotik_wg.proton_auth import (
+    CannotConnect,
     InvalidCredentials,
     TwoFactorRequired,
     login_with_password,
@@ -169,7 +170,7 @@ def test_login_maps_network_error_names():
         pass
 
     session.authenticate.side_effect = NewConnectionError("offline")
-    with pytest.raises(InvalidCredentials):
+    with pytest.raises(CannotConnect):
         login_with_password(
             "user@proton.me",
             "secret",
@@ -189,7 +190,50 @@ def test_login_maps_proton_network_error_name():
         pass
 
     session.authenticate.side_effect = ProtonNetworkError("timeout")
-    with pytest.raises(InvalidCredentials):
+    with pytest.raises(CannotConnect):
+        login_with_password(
+            "user@proton.me",
+            "secret",
+            create_session=lambda: session,
+        )
+
+
+def test_login_maps_unknown_connection_error():
+    session = MagicMock()
+
+    class UnknownConnectionError(Exception):
+        pass
+
+    session.authenticate.side_effect = UnknownConnectionError(
+        "Timeout cannot be a boolean value"
+    )
+    with pytest.raises(CannotConnect, match="Timeout cannot be a boolean"):
+        login_with_password(
+            "user@proton.me",
+            "secret",
+            create_session=lambda: session,
+        )
+
+
+def test_login_maps_tls_pinning_and_timeout_errors():
+    session = MagicMock()
+
+    class TLSPinningError(Exception):
+        pass
+
+    class ConnectionTimeOutError(Exception):
+        pass
+
+    session.authenticate.side_effect = TLSPinningError("pin mismatch")
+    with pytest.raises(CannotConnect):
+        login_with_password(
+            "user@proton.me",
+            "secret",
+            create_session=lambda: session,
+        )
+
+    session.authenticate.side_effect = ConnectionTimeOutError("timed out")
+    with pytest.raises(CannotConnect):
         login_with_password(
             "user@proton.me",
             "secret",
@@ -214,3 +258,23 @@ def test_default_session_factory_builds_proton_session():
     fake_session_cls.assert_called_once()
     kwargs = fake_session_cls.call_args.kwargs
     assert kwargs["api_url"] == "https://vpn-api.proton.me"
+    # proton-client's pin adapter breaks on modern urllib3; use normal TLS.
+    assert kwargs["TLSPinning"] is False
+
+
+def test_default_session_loader_disables_tls_pinning():
+    import sys
+    from types import ModuleType
+
+    fake_session_cls = MagicMock(name="Session")
+    proton_mod = ModuleType("proton")
+    proton_api = ModuleType("proton.api")
+    proton_api.Session = fake_session_cls
+    sys.modules["proton"] = proton_mod
+    sys.modules["proton.api"] = proton_api
+
+    from proton_mikrotik_wg.proton_auth import default_session_loader
+
+    dump = {"api_url": "https://vpn-api.proton.me"}
+    default_session_loader(dump)
+    fake_session_cls.load.assert_called_once_with(dump, TLSPinning=False)

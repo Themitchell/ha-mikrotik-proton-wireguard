@@ -17,6 +17,7 @@ from proton_mikrotik_wg.const import (
     CONF_USERNAME,
 )
 from proton_mikrotik_wg.proton_auth import (
+    CannotConnect,
     InvalidCredentials,
     ProtonSessionData,
     TwoFactorRequired,
@@ -105,6 +106,19 @@ async def test_user_step_invalid_credentials(flow):
 
 
 @pytest.mark.asyncio
+async def test_user_step_cannot_connect(flow):
+    with patch(
+        "proton_mikrotik_wg.config_flow.login_with_password",
+        side_effect=CannotConnect("offline"),
+    ):
+        result = await flow.async_step_user(
+            {CONF_USERNAME: "user@proton.me", CONF_PASSWORD: "secret"}
+        )
+    assert result["type"] == "form"
+    assert result["errors"]["base"] == "cannot_connect"
+
+
+@pytest.mark.asyncio
 async def test_user_step_unknown_error(flow):
     with patch(
         "proton_mikrotik_wg.config_flow.login_with_password",
@@ -175,6 +189,18 @@ async def test_two_factor_step_invalid_code(flow):
     ):
         result = await flow.async_step_two_factor({CONF_TOTP: "000000"})
     assert result["errors"]["base"] == "invalid_auth"
+
+
+@pytest.mark.asyncio
+async def test_two_factor_step_cannot_connect(flow):
+    flow._username = "user@proton.me"
+    flow._pending_session = MagicMock()
+    with patch(
+        "proton_mikrotik_wg.config_flow.submit_two_factor",
+        side_effect=CannotConnect("offline"),
+    ):
+        result = await flow.async_step_two_factor({CONF_TOTP: "123456"})
+    assert result["errors"]["base"] == "cannot_connect"
 
 
 @pytest.mark.asyncio

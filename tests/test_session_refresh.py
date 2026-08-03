@@ -138,7 +138,7 @@ def test_default_session_loader_uses_proton_session_load():
 
     dump = session_dump_from_data(_data())
     assert default_session_loader(dump) is loaded
-    fake_session_cls.load.assert_called_once_with(dump, TLSPinning=True)
+    fake_session_cls.load.assert_called_once_with(dump, TLSPinning=False)
 
 
 def test_refresh_session_handles_none_scope():
