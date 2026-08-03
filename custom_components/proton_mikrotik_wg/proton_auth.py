@@ -23,15 +23,17 @@ class TwoFactorRequired(Exception):
         self.data = data
 
 
-# Exception class names from proton.exceptions (avoid hard import for tests).
-_AUTH_ERROR_NAMES = frozenset({"ProtonError"})
+# Exception class names from proton.exceptions / our HTTP client.
+_AUTH_ERROR_NAMES = frozenset({"ProtonError", "ProtonAPIError"})
 _CONNECT_ERROR_NAMES = frozenset(
     {
         "ProtonNetworkError",
+        "ProtonTransportError",
         "NewConnectionError",
         "ConnectionTimeOutError",
         "TLSPinningError",
         "UnknownConnectionError",
+        "OSError",
     }
 )
 
@@ -116,8 +118,8 @@ def login_with_password(
     create_session: SessionFactory,
 ) -> ProtonSessionData:
     """Authenticate with username/password. Raises TwoFactorRequired if TOTP needed."""
-    session = create_session()
     try:
+        session = create_session()
         scope = list(session.authenticate(username, password))
     except ValueError as err:
         raise InvalidCredentials("invalid username or password") from err
@@ -181,11 +183,10 @@ SessionLoader = Callable[[dict[str, Any]], ProtonSession]
 
 
 def default_session_loader(dump: dict[str, Any]) -> Any:
-    """Restore a proton.api.Session from a dump dict."""
-    from proton.api import Session
+    """Restore a Proton HTTP session from a dump dict (no system gpg)."""
+    from .proton_http import ProtonHttpSession
 
-    # Pinning adapter is incompatible with current urllib3; normal TLS only.
-    return Session.load(dump, TLSPinning=False)
+    return ProtonHttpSession.from_dump(dump)
 
 
 class ProtonAuthClient:
@@ -220,13 +221,11 @@ class ProtonAuthClient:
 
 
 def default_session_factory() -> Any:
-    """Create a real proton.api.Session for production use."""
-    from proton.api import Session
+    """Create a Proton HTTP session that does not require system gpg."""
+    from .proton_http import ProtonHttpSession
 
-    return Session(
+    return ProtonHttpSession(
         api_url=DEFAULT_API_URL,
         appversion=DEFAULT_APP_VERSION,
         user_agent=DEFAULT_USER_AGENT,
-        # Pinning adapter is incompatible with current urllib3; normal TLS only.
-        TLSPinning=False,
     )

@@ -242,39 +242,68 @@ def test_login_maps_tls_pinning_and_timeout_errors():
 
 
 def test_default_session_factory_builds_proton_session():
-    import sys
-    from types import ModuleType
+    from unittest.mock import patch
 
-    fake_session_cls = MagicMock(name="Session")
-    proton_mod = ModuleType("proton")
-    proton_api = ModuleType("proton.api")
-    proton_api.Session = fake_session_cls
-    sys.modules["proton"] = proton_mod
-    sys.modules["proton.api"] = proton_api
+    fake = MagicMock(name="ProtonHttpSession")
+    with patch(
+        "proton_mikrotik_wg.proton_http.ProtonHttpSession", fake
+    ):
+        from proton_mikrotik_wg.proton_auth import default_session_factory
 
-    from proton_mikrotik_wg.proton_auth import default_session_factory
-
-    default_session_factory()
-    fake_session_cls.assert_called_once()
-    kwargs = fake_session_cls.call_args.kwargs
+        default_session_factory()
+    fake.assert_called_once()
+    kwargs = fake.call_args.kwargs
     assert kwargs["api_url"] == "https://vpn-api.proton.me"
-    # proton-client's pin adapter breaks on modern urllib3; use normal TLS.
-    assert kwargs["TLSPinning"] is False
+    assert "TLSPinning" not in kwargs
 
 
 def test_default_session_loader_disables_tls_pinning():
-    import sys
-    from types import ModuleType
+    from unittest.mock import patch
 
-    fake_session_cls = MagicMock(name="Session")
-    proton_mod = ModuleType("proton")
-    proton_api = ModuleType("proton.api")
-    proton_api.Session = fake_session_cls
-    sys.modules["proton"] = proton_mod
-    sys.modules["proton.api"] = proton_api
-
-    from proton_mikrotik_wg.proton_auth import default_session_loader
-
+    fake = MagicMock(name="ProtonHttpSession")
     dump = {"api_url": "https://vpn-api.proton.me"}
-    default_session_loader(dump)
-    fake_session_cls.load.assert_called_once_with(dump, TLSPinning=False)
+    with patch(
+        "proton_mikrotik_wg.proton_http.ProtonHttpSession"
+    ) as cls:
+        from proton_mikrotik_wg.proton_auth import default_session_loader
+
+        default_session_loader(dump)
+    cls.from_dump.assert_called_once_with(dump)
+
+
+def test_login_maps_oserror_from_session_create():
+    def boom():
+        raise OSError("Unable to run gpg (gpg) - it may not be available.")
+
+    with pytest.raises(CannotConnect, match="gpg"):
+        login_with_password("user@proton.me", "secret", create_session=boom)
+
+
+def test_login_maps_proton_transport_error():
+    session = MagicMock()
+
+    class ProtonTransportError(Exception):
+        pass
+
+    session.authenticate.side_effect = ProtonTransportError("offline")
+    with pytest.raises(CannotConnect):
+        login_with_password(
+            "user@proton.me",
+            "secret",
+            create_session=lambda: session,
+        )
+
+
+def test_login_maps_proton_api_error():
+    session = MagicMock()
+
+    class ProtonAPIError(Exception):
+        pass
+
+    session.authenticate.side_effect = ProtonAPIError("Password is wrong")
+    with pytest.raises(InvalidCredentials):
+        login_with_password(
+            "user@proton.me",
+            "secret",
+            create_session=lambda: session,
+        )

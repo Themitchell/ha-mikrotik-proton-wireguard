@@ -122,23 +122,18 @@ def test_auth_client_refresh_propagates_invalid_credentials():
 
 
 def test_default_session_loader_uses_proton_session_load():
-    import sys
-    from types import ModuleType
+    from unittest.mock import patch
 
     loaded = MagicMock(name="loaded-session")
-    fake_session_cls = MagicMock()
-    fake_session_cls.load.return_value = loaded
-    proton_mod = ModuleType("proton")
-    proton_api = ModuleType("proton.api")
-    proton_api.Session = fake_session_cls
-    sys.modules["proton"] = proton_mod
-    sys.modules["proton.api"] = proton_api
-
-    from proton_mikrotik_wg.proton_auth import default_session_loader
-
     dump = session_dump_from_data(_data())
-    assert default_session_loader(dump) is loaded
-    fake_session_cls.load.assert_called_once_with(dump, TLSPinning=False)
+    with patch(
+        "proton_mikrotik_wg.proton_http.ProtonHttpSession"
+    ) as cls:
+        cls.from_dump.return_value = loaded
+        from proton_mikrotik_wg.proton_auth import default_session_loader
+
+        assert default_session_loader(dump) is loaded
+    cls.from_dump.assert_called_once_with(dump)
 
 
 def test_refresh_session_handles_none_scope():

@@ -38,6 +38,9 @@ The integration then:
 - Refreshes again every 12 hours
 - Marks the entry as needing reauth if refresh fails
 
+Login uses a gpg-free HTTP/SRP client so it works on typical Home Assistant
+containers (no system ``gpg`` required).
+
 ## Tests
 
 ```bash
