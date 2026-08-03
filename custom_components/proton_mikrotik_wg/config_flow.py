@@ -57,9 +57,9 @@ class ProtonMikroTikWgConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     @staticmethod
     def async_get_options_flow(
-        config_entry: config_entries.ConfigEntry,
+        _config_entry: config_entries.ConfigEntry,
     ) -> config_entries.OptionsFlow:
-        return ProtonMikroTikWgOptionsFlow(config_entry)
+        return ProtonMikroTikWgOptionsFlow()
 
     def _finish_login(self, username: str, session_data: ProtonSessionData) -> FlowResult:
         """Create a new entry, or update+reload during reauth."""
@@ -191,9 +191,6 @@ class ProtonMikroTikWgConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
 class ProtonMikroTikWgOptionsFlow(config_entries.OptionsFlow):
     """Configure MikroTik RouterOS API connection details."""
-
-    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
-        self.config_entry = config_entry
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
