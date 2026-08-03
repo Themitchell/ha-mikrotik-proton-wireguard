@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -140,3 +141,44 @@ def test_apply_tunnel_only_is_idempotent_and_updates_existing():
     assert len(routes) == 1
     assert routes[0]["dst-address"] == "5.6.7.8/32"
     assert routes[0]["gateway"] == "192.0.2.2"
+
+
+def test_librouteros_adapter_select_add_update_and_close():
+    from proton_mikrotik_wg.mikrotik_wg import LibRouterOsClient, LibRouterOsPath
+
+    rows = [
+        {"name": "wg-proton", ".id": "*1"},
+        {"name": "other", ".id": "*2"},
+    ]
+
+    class RawPath:
+        def __iter__(self):
+            return iter(rows)
+
+        def add(self, **kwargs):
+            return "*3"
+
+        def update(self, **kwargs):
+            self.updated = kwargs
+
+    raw_path = RawPath()
+    path = LibRouterOsPath(raw_path)
+    assert len(path.select()) == 2
+    assert path.select(name="wg-proton")[0][".id"] == "*1"
+    assert path.add(name="x") == "*3"
+    path.update(**{".id": "*1", "private-key": "k"})
+    assert raw_path.updated["private-key"] == "k"
+
+    api = MagicMock()
+    api.path.return_value = raw_path
+    client = LibRouterOsClient(api)
+    assert isinstance(client.path("interface", "wireguard"), LibRouterOsPath)
+    client.close()
+    api.close.assert_called_once()
+
+
+def test_librouteros_adapter_close_without_close_method():
+    from proton_mikrotik_wg.mikrotik_wg import LibRouterOsClient
+
+    api = MagicMock(spec=[])
+    LibRouterOsClient(api).close()

@@ -1,4 +1,4 @@
-"""Tests for provision_wireguard Home Assistant service."""
+"""Tests for provision_wireguard and apply_wireguard services."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ import pytest
 from proton_mikrotik_wg.const import (
     DEFAULT_WG_DEVICE_NAME,
     DOMAIN,
+    SERVICE_APPLY_WIREGUARD,
     SERVICE_PROVISION_WIREGUARD,
 )
 from proton_mikrotik_wg.services import async_setup_services, async_unload_services
@@ -31,16 +32,26 @@ def _cred():
     )
 
 
+def _register_capture(hass):
+    registered = {}
+
+    def capture(domain, service, handler, schema=None):
+        registered[service] = handler
+
+    hass.services.async_register = capture
+    return registered
+
+
 @pytest.mark.asyncio
-async def test_setup_services_registers_provision_handler():
+async def test_setup_services_registers_provision_and_apply():
     hass = MagicMock()
     hass.services.has_service = MagicMock(return_value=False)
     hass.services.async_register = MagicMock()
     await async_setup_services(hass)
-    hass.services.async_register.assert_called_once()
-    args = hass.services.async_register.call_args.args
-    assert args[0] == DOMAIN
-    assert args[1] == SERVICE_PROVISION_WIREGUARD
+    assert hass.services.async_register.call_count == 2
+    names = [c.args[1] for c in hass.services.async_register.call_args_list]
+    assert SERVICE_PROVISION_WIREGUARD in names
+    assert SERVICE_APPLY_WIREGUARD in names
 
 
 @pytest.mark.asyncio
@@ -59,20 +70,27 @@ async def test_provision_service_calls_manager():
     manager.async_provision_wireguard = AsyncMock(return_value=_cred())
     hass.data = {DOMAIN: {"abc": manager}}
     hass.services.has_service = MagicMock(return_value=False)
-
-    registered = {}
-
-    def capture(domain, service, handler, schema=None):
-        registered["handler"] = handler
-
-    hass.services.async_register = capture
+    registered = _register_capture(hass)
     await async_setup_services(hass)
 
-    call = SimpleNamespace(data={})
-    await registered["handler"](call)
+    await registered[SERVICE_PROVISION_WIREGUARD](SimpleNamespace(data={}))
     manager.async_provision_wireguard.assert_awaited_once_with(
         device_name=DEFAULT_WG_DEVICE_NAME
     )
+
+
+@pytest.mark.asyncio
+async def test_apply_service_calls_manager():
+    hass = MagicMock()
+    manager = MagicMock()
+    manager.async_apply_wireguard = AsyncMock(return_value=_cred())
+    hass.data = {DOMAIN: {"abc": manager}}
+    hass.services.has_service = MagicMock(return_value=False)
+    registered = _register_capture(hass)
+    await async_setup_services(hass)
+
+    await registered[SERVICE_APPLY_WIREGUARD](SimpleNamespace(data={}))
+    manager.async_apply_wireguard.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -80,13 +98,12 @@ async def test_provision_service_rejects_unknown_entry():
     hass = MagicMock()
     hass.data = {DOMAIN: {}}
     hass.services.has_service = MagicMock(return_value=False)
-    registered = {}
-    hass.services.async_register = lambda d, s, h, schema=None: registered.update(
-        handler=h
-    )
+    registered = _register_capture(hass)
     await async_setup_services(hass)
     with pytest.raises(ValueError, match="No Proton"):
-        await registered["handler"](SimpleNamespace(data={"entry_id": "missing"}))
+        await registered[SERVICE_PROVISION_WIREGUARD](
+            SimpleNamespace(data={"entry_id": "missing"})
+        )
 
 
 @pytest.mark.asyncio
@@ -96,12 +113,9 @@ async def test_provision_service_uses_explicit_entry_id():
     manager.async_provision_wireguard = AsyncMock(return_value=_cred())
     hass.data = {DOMAIN: {"abc": manager, "other": MagicMock()}}
     hass.services.has_service = MagicMock(return_value=False)
-    registered = {}
-    hass.services.async_register = lambda d, s, h, schema=None: registered.update(
-        handler=h
-    )
+    registered = _register_capture(hass)
     await async_setup_services(hass)
-    await registered["handler"](
+    await registered[SERVICE_PROVISION_WIREGUARD](
         SimpleNamespace(data={"entry_id": "abc", "device_name": "ha-custom"})
     )
     manager.async_provision_wireguard.assert_awaited_once_with(device_name="ha-custom")
@@ -112,13 +126,10 @@ async def test_provision_service_rejects_when_not_configured():
     hass = MagicMock()
     hass.data = {}
     hass.services.has_service = MagicMock(return_value=False)
-    registered = {}
-    hass.services.async_register = lambda d, s, h, schema=None: registered.update(
-        handler=h
-    )
+    registered = _register_capture(hass)
     await async_setup_services(hass)
     with pytest.raises(ValueError, match="not configured"):
-        await registered["handler"](SimpleNamespace(data={}))
+        await registered[SERVICE_PROVISION_WIREGUARD](SimpleNamespace(data={}))
 
 
 @pytest.mark.asyncio
@@ -128,9 +139,9 @@ async def test_unload_services_removes_when_no_entries():
     hass.services.has_service = MagicMock(return_value=True)
     hass.services.async_remove = MagicMock()
     await async_unload_services(hass)
-    hass.services.async_remove.assert_called_once_with(
-        DOMAIN, SERVICE_PROVISION_WIREGUARD
-    )
+    assert hass.services.async_remove.call_count == 2
+    removed = {c.args[1] for c in hass.services.async_remove.call_args_list}
+    assert removed == {SERVICE_PROVISION_WIREGUARD, SERVICE_APPLY_WIREGUARD}
 
 
 @pytest.mark.asyncio

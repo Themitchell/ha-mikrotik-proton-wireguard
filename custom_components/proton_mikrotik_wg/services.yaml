@@ -14,3 +14,13 @@ provision_wireguard:
       description: Optional. Defaults to the only configured entry.
       selector:
         text:
+
+apply_wireguard:
+  name: Apply WireGuard to MikroTik
+  description: Push the stored Proton credential onto wg-proton as a tunnel-only config (no LAN egress via VPN yet).
+  fields:
+    entry_id:
+      name: Config entry ID
+      description: Optional. Defaults to the only configured entry.
+      selector:
+        text:

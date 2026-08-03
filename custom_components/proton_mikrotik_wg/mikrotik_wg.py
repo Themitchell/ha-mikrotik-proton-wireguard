@@ -2,13 +2,36 @@
 
 from __future__ import annotations
 
-from typing import Any, Protocol
+from typing import Any, Mapping, Protocol
 
-from .const import DEFAULT_WG_INTERFACE
+from .const import (
+    CONF_WG_CLIENT_ADDRESS,
+    CONF_WG_CLIENT_PRIVATE_KEY,
+    CONF_WG_CLIENT_PUBLIC_KEY,
+    CONF_WG_DEVICE_NAME,
+    CONF_WG_ENDPOINT_HOST,
+    CONF_WG_ENDPOINT_PORT,
+    CONF_WG_EXPIRATION_TIME,
+    CONF_WG_SERIAL_NUMBER,
+    CONF_WG_SERVER_PUBLIC_KEY,
+    DEFAULT_WG_INTERFACE,
+)
 from .wg_credentials import WireGuardCredential
 
 ENDPOINT_ROUTE_COMMENT = "proton-wg-endpoint"
 DEFAULT_KEEPALIVE = "25s"
+
+_REQUIRED_WG_FIELDS = (
+    CONF_WG_DEVICE_NAME,
+    CONF_WG_SERIAL_NUMBER,
+    CONF_WG_CLIENT_PRIVATE_KEY,
+    CONF_WG_CLIENT_PUBLIC_KEY,
+    CONF_WG_SERVER_PUBLIC_KEY,
+    CONF_WG_ENDPOINT_HOST,
+    CONF_WG_ENDPOINT_PORT,
+    CONF_WG_CLIENT_ADDRESS,
+    CONF_WG_EXPIRATION_TIME,
+)
 
 
 class RouterOsPath(Protocol):
@@ -29,6 +52,66 @@ class RouterOsClient(Protocol):
 
     def path(self, *parts: str) -> RouterOsPath:
         ...
+
+
+class LibRouterOsPath:
+    """Adapt librouteros Path to RouterOsPath (filter in Python)."""
+
+    def __init__(self, path: Any) -> None:
+        self._path = path
+
+    def select(self, **kwargs: Any) -> list[dict[str, Any]]:
+        rows = [dict(row) for row in self._path]
+        if not kwargs:
+            return rows
+        return [
+            row
+            for row in rows
+            if all(row.get(key) == value for key, value in kwargs.items())
+        ]
+
+    def add(self, **kwargs: Any) -> str:
+        return self._path.add(**kwargs)
+
+    def update(self, **kwargs: Any) -> None:
+        self._path.update(**kwargs)
+
+
+class LibRouterOsClient:
+    """Adapt a librouteros API connection to RouterOsClient."""
+
+    def __init__(self, api: Any) -> None:
+        self._api = api
+
+    def path(self, *parts: str) -> LibRouterOsPath:
+        return LibRouterOsPath(self._api.path(*parts))
+
+    def close(self) -> None:
+        close = getattr(self._api, "close", None)
+        if callable(close):
+            close()
+
+
+def wireguard_credential_from_entry_data(data: Mapping[str, Any]) -> WireGuardCredential:
+    """Rebuild a WireGuardCredential from config entry data."""
+    missing = [key for key in _REQUIRED_WG_FIELDS if key not in data]
+    if missing:
+        raise ValueError(
+            "WireGuard credential is not provisioned on this entry "
+            f"(missing {', '.join(missing)})"
+        )
+    return WireGuardCredential(
+        device_name=str(data[CONF_WG_DEVICE_NAME]),
+        serial_number=str(data[CONF_WG_SERIAL_NUMBER]),
+        client_private_key=str(data[CONF_WG_CLIENT_PRIVATE_KEY]),
+        client_public_key=str(data[CONF_WG_CLIENT_PUBLIC_KEY]),
+        server_public_key=str(data[CONF_WG_SERVER_PUBLIC_KEY]),
+        endpoint_host=str(data[CONF_WG_ENDPOINT_HOST]),
+        endpoint_port=int(data[CONF_WG_ENDPOINT_PORT]),
+        client_address=str(data[CONF_WG_CLIENT_ADDRESS]),
+        expiration_time=int(data[CONF_WG_EXPIRATION_TIME]),
+        dns=None,
+    )
 
 
 def _upsert(

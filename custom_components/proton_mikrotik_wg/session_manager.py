@@ -9,11 +9,12 @@ from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.event import async_track_time_interval
 
 from .const import (
-    CONF_ACCESS_TOKEN,
-    CONF_REFRESH_TOKEN,
-    CONF_SCOPE,
-    CONF_UID,
-    CONF_USERNAME,
+    CONF_MIKROTIK_HOST,
+    CONF_MIKROTIK_PASSWORD,
+    CONF_MIKROTIK_PORT,
+    CONF_MIKROTIK_USERNAME,
+    CONF_MIKROTIK_USE_SSL,
+    CONF_MIKROTIK_WAN_GATEWAY,
     CONF_WG_CLIENT_ADDRESS,
     CONF_WG_CLIENT_PRIVATE_KEY,
     CONF_WG_CLIENT_PUBLIC_KEY,
@@ -23,7 +24,15 @@ from .const import (
     CONF_WG_EXPIRATION_TIME,
     CONF_WG_SERIAL_NUMBER,
     CONF_WG_SERVER_PUBLIC_KEY,
+    DEFAULT_MIKROTIK_PORT,
+    DEFAULT_MIKROTIK_USE_SSL,
     DEFAULT_WG_DEVICE_NAME,
+)
+from .mikrotik_client import open_mikrotik_api
+from .mikrotik_wg import (
+    LibRouterOsClient,
+    apply_tunnel_only,
+    wireguard_credential_from_entry_data,
 )
 from .proton_auth import InvalidCredentials, ProtonAuthClient, ProtonSessionData
 from .session_store import entry_data_from_session, session_data_from_entry
@@ -119,4 +128,42 @@ class ProtonSessionManager:
             }
         )
         self.hass.config_entries.async_update_entry(self.entry, data=merged)
+        return cred
+
+    async def async_apply_wireguard(self) -> WireGuardCredential:
+        """Push the stored credential onto MikroTik as a tunnel-only config."""
+        options = dict(self.entry.options)
+        required = (
+            CONF_MIKROTIK_HOST,
+            CONF_MIKROTIK_USERNAME,
+            CONF_MIKROTIK_PASSWORD,
+            CONF_MIKROTIK_WAN_GATEWAY,
+        )
+        missing = [key for key in required if not options.get(key)]
+        if missing:
+            raise ValueError(
+                "MikroTik is not configured — use Configure on the integration "
+                f"(missing {', '.join(missing)})"
+            )
+
+        cred = wireguard_credential_from_entry_data(self.entry.data)
+        wan_gateway = str(options[CONF_MIKROTIK_WAN_GATEWAY])
+
+        def _apply() -> None:
+            api = open_mikrotik_api(
+                host=str(options[CONF_MIKROTIK_HOST]),
+                username=str(options[CONF_MIKROTIK_USERNAME]),
+                password=str(options[CONF_MIKROTIK_PASSWORD]),
+                port=int(options.get(CONF_MIKROTIK_PORT, DEFAULT_MIKROTIK_PORT)),
+                use_ssl=bool(
+                    options.get(CONF_MIKROTIK_USE_SSL, DEFAULT_MIKROTIK_USE_SSL)
+                ),
+            )
+            client = LibRouterOsClient(api)
+            try:
+                apply_tunnel_only(client, cred, wan_gateway=wan_gateway)
+            finally:
+                client.close()
+
+        await self.hass.async_add_executor_job(_apply)
         return cred
