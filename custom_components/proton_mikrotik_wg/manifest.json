@@ -5,6 +5,6 @@
   "config_flow": true,
   "documentation": "https://github.com/Themitchell/ha-mikrotik-proton-wireguard",
   "iot_class": "local_polling",
-  "requirements": ["proton-client>=0.5.1", "cryptography>=41"],
-  "version": "0.1.8"
+  "requirements": ["proton-client>=0.5.1", "cryptography>=41", "librouteros>=3.2.0"],
+  "version": "0.1.9"
 }

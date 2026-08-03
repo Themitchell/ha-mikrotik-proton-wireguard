@@ -33,5 +33,26 @@
       "cannot_connect": "Could not reach Proton VPN — check Home Assistant logs for details",
       "unknown": "Unexpected error — check Home Assistant logs"
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "MikroTik router",
+        "description": "Connect over RouterOS api-ssl (default port 8729). WAN gateway is used to pin the Proton endpoint /32 so the tunnel handshake stays on ISP.",
+        "data": {
+          "mikrotik_host": "Router hostname or IP",
+          "mikrotik_username": "API username",
+          "mikrotik_password": "API password",
+          "mikrotik_port": "API port",
+          "mikrotik_use_ssl": "Use API-SSL",
+          "mikrotik_wan_gateway": "WAN gateway IP"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Invalid MikroTik username or password",
+      "cannot_connect": "Could not reach the MikroTik API — check host, port, and SSL",
+      "unknown": "Unexpected error — check Home Assistant logs"
+    }
   }
 }
