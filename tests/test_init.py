@@ -35,6 +35,8 @@ async def test_async_setup_entry_creates_session_manager():
     hass.async_add_executor_job = run_job
     hass.config_entries.async_forward_entry_setups = AsyncMock()
     hass.config_entries.async_update_entry = MagicMock()
+    hass.services.has_service = MagicMock(return_value=False)
+    hass.services.async_register = MagicMock()
     entry = SimpleNamespace(
         entry_id="abc",
         data={
@@ -58,6 +60,7 @@ async def test_async_setup_entry_creates_session_manager():
     assert manager.client is client
     hass.config_entries.async_update_entry.assert_called()
     hass.config_entries.async_forward_entry_setups.assert_awaited_once()
+    hass.services.async_register.assert_called()
 
 
 @pytest.mark.asyncio
@@ -67,11 +70,14 @@ async def test_async_unload_entry_stops_manager():
     manager.async_unload = AsyncMock()
     hass.data = {DOMAIN: {"abc": manager}}
     hass.config_entries.async_unload_platforms = AsyncMock(return_value=True)
+    hass.services.has_service = MagicMock(return_value=True)
+    hass.services.async_remove = MagicMock()
     entry = SimpleNamespace(entry_id="abc")
 
     assert await async_unload_entry(hass, entry) is True
     manager.async_unload.assert_awaited_once()
     assert "abc" not in hass.data[DOMAIN]
+    hass.services.async_remove.assert_called()
 
 
 @pytest.mark.asyncio

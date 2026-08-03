@@ -67,6 +67,23 @@ async def test_async_refresh_persists_new_tokens(hass, entry):
 
 
 @pytest.mark.asyncio
+async def test_async_refresh_preserves_existing_wireguard_fields(hass, entry):
+    entry.data["wg_device_name"] = "ha-wg-proton"
+    entry.data["wg_serial_number"] = "sn-keep"
+    client = MagicMock()
+    client.refresh.return_value = _session(
+        access_token="access-new", refresh_token="refresh-new"
+    )
+    manager = ProtonSessionManager(hass, entry, client=client)
+
+    await manager.async_refresh()
+    _, kwargs = hass.config_entries.async_update_entry.call_args
+    assert kwargs["data"]["wg_device_name"] == "ha-wg-proton"
+    assert kwargs["data"]["wg_serial_number"] == "sn-keep"
+    assert kwargs["data"][CONF_ACCESS_TOKEN] == "access-new"
+
+
+@pytest.mark.asyncio
 async def test_async_refresh_raises_auth_failed(hass, entry):
     client = MagicMock()
     client.refresh.side_effect = InvalidCredentials("expired")

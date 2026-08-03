@@ -8,8 +8,26 @@ from typing import TYPE_CHECKING, Any, Callable
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.event import async_track_time_interval
 
+from .const import (
+    CONF_ACCESS_TOKEN,
+    CONF_REFRESH_TOKEN,
+    CONF_SCOPE,
+    CONF_UID,
+    CONF_USERNAME,
+    CONF_WG_CLIENT_ADDRESS,
+    CONF_WG_CLIENT_PRIVATE_KEY,
+    CONF_WG_CLIENT_PUBLIC_KEY,
+    CONF_WG_DEVICE_NAME,
+    CONF_WG_ENDPOINT_HOST,
+    CONF_WG_ENDPOINT_PORT,
+    CONF_WG_EXPIRATION_TIME,
+    CONF_WG_SERIAL_NUMBER,
+    CONF_WG_SERVER_PUBLIC_KEY,
+    DEFAULT_WG_DEVICE_NAME,
+)
 from .proton_auth import InvalidCredentials, ProtonAuthClient, ProtonSessionData
 from .session_store import entry_data_from_session, session_data_from_entry
+from .wg_credentials import WireGuardCredential, provision_wireguard_credential
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
@@ -67,8 +85,38 @@ class ProtonSessionManager:
         except InvalidCredentials as err:
             raise ConfigEntryAuthFailed("Proton session refresh failed") from err
 
-        self.hass.config_entries.async_update_entry(
-            self.entry,
-            data=entry_data_from_session(updated),
-        )
+        merged = dict(self.entry.data)
+        merged.update(entry_data_from_session(updated))
+        self.hass.config_entries.async_update_entry(self.entry, data=merged)
         return updated
+
+    async def async_provision_wireguard(
+        self, *, device_name: str = DEFAULT_WG_DEVICE_NAME
+    ) -> WireGuardCredential:
+        """Create one Proton WireGuard certificate labeled for Home Assistant."""
+        if not device_name.startswith("ha-"):
+            raise ValueError("device_name must start with 'ha-'")
+
+        session = self._client.live_session()
+        cred = await self.hass.async_add_executor_job(
+            lambda: provision_wireguard_credential(
+                session, device_name=device_name
+            )
+        )
+        merged = dict(self.entry.data)
+        merged.update(entry_data_from_session(self._client.data))
+        merged.update(
+            {
+                CONF_WG_DEVICE_NAME: cred.device_name,
+                CONF_WG_SERIAL_NUMBER: cred.serial_number,
+                CONF_WG_CLIENT_PRIVATE_KEY: cred.client_private_key,
+                CONF_WG_CLIENT_PUBLIC_KEY: cred.client_public_key,
+                CONF_WG_SERVER_PUBLIC_KEY: cred.server_public_key,
+                CONF_WG_ENDPOINT_HOST: cred.endpoint_host,
+                CONF_WG_ENDPOINT_PORT: cred.endpoint_port,
+                CONF_WG_CLIENT_ADDRESS: cred.client_address,
+                CONF_WG_EXPIRATION_TIME: cred.expiration_time,
+            }
+        )
+        self.hass.config_entries.async_update_entry(self.entry, data=merged)
+        return cred

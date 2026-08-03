@@ -1,0 +1,16 @@
+provision_wireguard:
+  name: Provision WireGuard credential
+  description: Create one Proton WireGuard certificate labeled for Home Assistant (ha-...).
+  fields:
+    device_name:
+      name: Device name
+      description: Label shown in Proton (must start with ha-).
+      example: ha-wg-proton
+      default: ha-wg-proton
+      selector:
+        text:
+    entry_id:
+      name: Config entry ID
+      description: Optional. Defaults to the only configured entry.
+      selector:
+        text:
