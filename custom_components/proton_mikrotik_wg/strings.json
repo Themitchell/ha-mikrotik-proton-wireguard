@@ -22,7 +22,7 @@
     },
     "error": {
       "invalid_auth": "Invalid credentials or two-factor code",
-      "cannot_connect": "Could not reach Proton VPN (network or TLS error)",
+      "cannot_connect": "Could not reach Proton VPN — check Home Assistant logs for details",
       "unknown": "Unexpected error — check Home Assistant logs"
     }
   }

@@ -64,7 +64,7 @@ async def test_user_step_shows_form_without_input(flow):
 async def test_user_step_creates_entry_on_successful_login(flow):
     session = _session_data()
     with patch(
-        "proton_mikrotik_wg.config_flow.login_with_password",
+        "proton_mikrotik_wg.config_flow.login_with_password_failover",
         return_value=session,
     ):
         result = await flow.async_step_user(
@@ -83,7 +83,7 @@ async def test_user_step_creates_entry_on_successful_login(flow):
 @pytest.mark.asyncio
 async def test_user_step_normalizes_unique_id_case(flow):
     with patch(
-        "proton_mikrotik_wg.config_flow.login_with_password",
+        "proton_mikrotik_wg.config_flow.login_with_password_failover",
         return_value=_session_data(username="User@Proton.me"),
     ):
         await flow.async_step_user(
@@ -95,7 +95,7 @@ async def test_user_step_normalizes_unique_id_case(flow):
 @pytest.mark.asyncio
 async def test_user_step_invalid_credentials(flow):
     with patch(
-        "proton_mikrotik_wg.config_flow.login_with_password",
+        "proton_mikrotik_wg.config_flow.login_with_password_failover",
         side_effect=InvalidCredentials("nope"),
     ):
         result = await flow.async_step_user(
@@ -108,7 +108,7 @@ async def test_user_step_invalid_credentials(flow):
 @pytest.mark.asyncio
 async def test_user_step_cannot_connect(flow):
     with patch(
-        "proton_mikrotik_wg.config_flow.login_with_password",
+        "proton_mikrotik_wg.config_flow.login_with_password_failover",
         side_effect=CannotConnect("offline"),
     ):
         result = await flow.async_step_user(
@@ -121,7 +121,7 @@ async def test_user_step_cannot_connect(flow):
 @pytest.mark.asyncio
 async def test_user_step_unknown_error(flow):
     with patch(
-        "proton_mikrotik_wg.config_flow.login_with_password",
+        "proton_mikrotik_wg.config_flow.login_with_password_failover",
         side_effect=RuntimeError("boom"),
     ):
         result = await flow.async_step_user(
@@ -134,7 +134,7 @@ async def test_user_step_unknown_error(flow):
 async def test_user_step_routes_to_two_factor(flow):
     pending = MagicMock(name="pending-session")
     with patch(
-        "proton_mikrotik_wg.config_flow.login_with_password",
+        "proton_mikrotik_wg.config_flow.login_with_password_failover",
         side_effect=TwoFactorRequired(pending, _session_data(scope=("twofactor",))),
     ):
         result = await flow.async_step_user(

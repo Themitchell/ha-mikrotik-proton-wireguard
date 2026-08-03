@@ -253,7 +253,7 @@ def test_default_session_factory_builds_proton_session():
         default_session_factory()
     fake.assert_called_once()
     kwargs = fake.call_args.kwargs
-    assert kwargs["api_url"] == "https://vpn-api.proton.me"
+    assert kwargs["api_url"] == "https://api.protonvpn.ch"
     assert "TLSPinning" not in kwargs
 
 

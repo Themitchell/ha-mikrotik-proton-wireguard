@@ -13,8 +13,7 @@ from .proton_auth import (
     CannotConnect,
     InvalidCredentials,
     TwoFactorRequired,
-    default_session_factory,
-    login_with_password,
+    login_with_password_failover,
     submit_two_factor,
 )
 from .schemas import PROTON_CREDENTIALS_SCHEMA, PROTON_TWO_FACTOR_SCHEMA
@@ -47,11 +46,7 @@ class ProtonMikroTikWgConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
             try:
                 session_data = await self.hass.async_add_executor_job(
-                    lambda: login_with_password(
-                        username,
-                        password,
-                        create_session=default_session_factory,
-                    )
+                    lambda: login_with_password_failover(username, password)
                 )
             except TwoFactorRequired as err:
                 self._username = username
@@ -59,7 +54,8 @@ class ProtonMikroTikWgConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 return await self.async_step_two_factor()
             except InvalidCredentials:
                 errors["base"] = "invalid_auth"
-            except CannotConnect:
+            except CannotConnect as err:
+                _LOGGER.warning("Proton connect failed: %s", err)
                 errors["base"] = "cannot_connect"
             except Exception:  # noqa: BLE001
                 _LOGGER.exception("Unexpected Proton login failure")

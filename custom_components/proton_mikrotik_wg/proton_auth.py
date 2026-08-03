@@ -158,9 +158,48 @@ def refresh_session(session: ProtonSession, *, username: str) -> ProtonSessionDa
     return _session_data(username, session, scope)
 
 
-DEFAULT_API_URL = "https://vpn-api.proton.me"
+DEFAULT_API_URL = "https://api.protonvpn.ch"
+# Prefer legacy VPN API first — some hosts block or challenge vpn-api.proton.me.
+DEFAULT_API_URLS = (
+    "https://api.protonvpn.ch",
+    "https://vpn-api.proton.me",
+)
 DEFAULT_APP_VERSION = "linux-vpn@4.3.0"
 DEFAULT_USER_AGENT = "ProtonVPN/4.3.0 (Linux; HomeAssistant)"
+
+
+def session_factory_for_url(api_url: str) -> SessionFactory:
+    """Build a session factory pinned to one Proton API base URL."""
+
+    def factory() -> Any:
+        from .proton_http import ProtonHttpSession
+
+        return ProtonHttpSession(
+            api_url=api_url,
+            appversion=DEFAULT_APP_VERSION,
+            user_agent=DEFAULT_USER_AGENT,
+        )
+
+    return factory
+
+
+def login_with_password_failover(
+    username: str,
+    password: str,
+) -> ProtonSessionData:
+    """Login trying each known Proton API host until one connects."""
+    last_connect_error: CannotConnect | None = None
+    for api_url in DEFAULT_API_URLS:
+        try:
+            return login_with_password(
+                username,
+                password,
+                create_session=session_factory_for_url(api_url),
+            )
+        except CannotConnect as err:
+            last_connect_error = err
+    assert last_connect_error is not None
+    raise last_connect_error
 
 
 def session_dump_from_data(data: ProtonSessionData) -> dict[str, Any]:
@@ -222,10 +261,5 @@ class ProtonAuthClient:
 
 def default_session_factory() -> Any:
     """Create a Proton HTTP session that does not require system gpg."""
-    from .proton_http import ProtonHttpSession
+    return session_factory_for_url(DEFAULT_API_URL)()
 
-    return ProtonHttpSession(
-        api_url=DEFAULT_API_URL,
-        appversion=DEFAULT_APP_VERSION,
-        user_agent=DEFAULT_USER_AGENT,
-    )
