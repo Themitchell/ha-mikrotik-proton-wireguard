@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "proton-mikrotik-wg"
-version = "0.1.3"
+version = "0.1.4"
 description = "Home Assistant integration: Proton WireGuard on a single MikroTik interface"
 requires-python = ">=3.12"
 dependencies = ["voluptuous", "proton-client>=0.5.1"]

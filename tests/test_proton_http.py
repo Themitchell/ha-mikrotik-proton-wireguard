@@ -172,6 +172,18 @@ def test_api_request_raises_on_proton_error_code(session):
     assert "Password is wrong" in str(exc.value)
 
 
+def test_api_request_parses_json_error_on_http_422(session):
+    """Proton returns HTTP 422 with Code/Error JSON for auth failures."""
+    session._http.post.return_value = _http_json(
+        {"Code": 8002, "Error": "This email address does not exist."},
+        status=422,
+    )
+    with pytest.raises(Exception) as exc:
+        session.api_request("/auth", {"Username": "x"})
+    assert type(exc.value).__name__ == "ProtonAPIError"
+    assert "does not exist" in str(exc.value)
+
+
 def test_api_request_maps_transport_errors(session):
     session._http.post.side_effect = ConnectionError("offline")
     with pytest.raises(Exception) as exc:
@@ -186,7 +198,11 @@ def test_api_request_unknown_method(session):
 
 
 def test_api_request_http_error_status(session):
-    session._http.post.return_value = _http_json({}, status=503)
+    resp = MagicMock()
+    resp.status_code = 503
+    resp.reason = "Service Unavailable"
+    resp.json.side_effect = ValueError("no json")
+    session._http.post.return_value = resp
     with pytest.raises(Exception) as exc:
         session.api_request("/auth", {"Username": "x"})
     assert "HTTP 503" in str(exc.value)
@@ -208,6 +224,13 @@ def test_api_request_rejects_non_dict_payload(session):
     with pytest.raises(Exception) as exc:
         session.api_request("/auth", {"Username": "x"})
     assert "unexpected" in str(exc.value)
+
+
+def test_api_request_returns_dict_without_code(session):
+    session._http.post.return_value = _http_json({"ok": True})
+    # Force status 200 body without Proton Code field.
+    session._http.post.return_value.json.return_value = {"ok": True}
+    assert session.api_request("/custom", {"x": 1}) == {"ok": True}
 
 
 def test_api_request_get_without_body(session):

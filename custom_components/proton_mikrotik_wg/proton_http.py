@@ -99,22 +99,30 @@ class ProtonHttpSession:
                 raise
             raise ProtonTransportError(str(err)) from err
 
+        try:
+            parsed = response.json()
+        except ValueError:
+            parsed = None
+
+        # Proton often returns HTTP 422 with {"Code": 8002, "Error": "..."} for
+        # bad credentials — treat JSON API codes as auth errors, not transport.
+        if isinstance(parsed, dict) and "Code" in parsed:
+            code = parsed.get("Code", 0)
+            if code != 1000:
+                raise ProtonAPIError(
+                    int(code), str(parsed.get("Error", "Proton error"))
+                )
+            return parsed
+
         if response.status_code >= 400:
             raise ProtonTransportError(
                 f"HTTP {response.status_code}: {response.reason}"
             )
-
-        try:
-            payload = response.json()
-        except ValueError as err:
-            raise ProtonTransportError("invalid JSON from Proton") from err
-
-        if not isinstance(payload, dict):
+        if not isinstance(parsed, dict):
+            if parsed is None:
+                raise ProtonTransportError("invalid JSON from Proton")
             raise ProtonTransportError("unexpected Proton response shape")
-        code = payload.get("Code", 0)
-        if code != 1000:
-            raise ProtonAPIError(int(code), str(payload.get("Error", "Proton error")))
-        return payload
+        return parsed
 
     def authenticate(self, username: str, password: str) -> list[str]:
         """SRP login against Proton; returns the session scope list."""
