@@ -8,7 +8,23 @@ from typing import Any
 from homeassistant import config_entries
 from homeassistant.data_entry_flow import FlowResult
 
-from .const import CONF_PASSWORD, CONF_TOTP, CONF_USERNAME, DOMAIN
+from .const import (
+    CONF_MIKROTIK_HOST,
+    CONF_MIKROTIK_PASSWORD,
+    CONF_MIKROTIK_PORT,
+    CONF_MIKROTIK_USERNAME,
+    CONF_MIKROTIK_USE_SSL,
+    CONF_MIKROTIK_WAN_GATEWAY,
+    CONF_PASSWORD,
+    CONF_TOTP,
+    CONF_USERNAME,
+    DOMAIN,
+)
+from .mikrotik_client import (
+    CannotConnectMikroTik,
+    InvalidMikroTikAuth,
+    check_mikrotik_connection,
+)
 from .proton_auth import (
     CannotConnect,
     InvalidCredentials,
@@ -21,6 +37,7 @@ from .schemas import (
     PROTON_CREDENTIALS_SCHEMA,
     PROTON_REAUTH_SCHEMA,
     PROTON_TWO_FACTOR_SCHEMA,
+    mikrotik_options_schema,
 )
 from .session_store import entry_data_from_session
 
@@ -37,6 +54,12 @@ class ProtonMikroTikWgConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._username: str | None = None
         self._pending_session: Any = None
         self._reauth_entry: config_entries.ConfigEntry | None = None
+
+    @staticmethod
+    def async_get_options_flow(
+        config_entry: config_entries.ConfigEntry,
+    ) -> config_entries.OptionsFlow:
+        return ProtonMikroTikWgOptionsFlow(config_entry)
 
     def _finish_login(self, username: str, session_data: ProtonSessionData) -> FlowResult:
         """Create a new entry, or update+reload during reauth."""
@@ -162,5 +185,58 @@ class ProtonMikroTikWgConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="two_factor",
             data_schema=PROTON_TWO_FACTOR_SCHEMA,
+            errors=errors,
+        )
+
+
+class ProtonMikroTikWgOptionsFlow(config_entries.OptionsFlow):
+    """Configure MikroTik RouterOS API connection details."""
+
+    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
+        self.config_entry = config_entry
+
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Collect and verify MikroTik api-ssl credentials."""
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            try:
+                await self.hass.async_add_executor_job(
+                    lambda: check_mikrotik_connection(
+                        host=user_input[CONF_MIKROTIK_HOST],
+                        username=user_input[CONF_MIKROTIK_USERNAME],
+                        password=user_input[CONF_MIKROTIK_PASSWORD],
+                        port=int(user_input[CONF_MIKROTIK_PORT]),
+                        use_ssl=bool(user_input[CONF_MIKROTIK_USE_SSL]),
+                    )
+                )
+            except InvalidMikroTikAuth:
+                errors["base"] = "invalid_auth"
+            except CannotConnectMikroTik as err:
+                _LOGGER.warning("MikroTik connect failed: %s", err)
+                errors["base"] = "cannot_connect"
+            except Exception:  # noqa: BLE001
+                _LOGGER.exception("Unexpected MikroTik options failure")
+                errors["base"] = "unknown"
+            else:
+                return self.async_create_entry(
+                    title="MikroTik",
+                    data={
+                        CONF_MIKROTIK_HOST: user_input[CONF_MIKROTIK_HOST],
+                        CONF_MIKROTIK_USERNAME: user_input[CONF_MIKROTIK_USERNAME],
+                        CONF_MIKROTIK_PASSWORD: user_input[CONF_MIKROTIK_PASSWORD],
+                        CONF_MIKROTIK_PORT: int(user_input[CONF_MIKROTIK_PORT]),
+                        CONF_MIKROTIK_USE_SSL: bool(user_input[CONF_MIKROTIK_USE_SSL]),
+                        CONF_MIKROTIK_WAN_GATEWAY: user_input[
+                            CONF_MIKROTIK_WAN_GATEWAY
+                        ],
+                    },
+                )
+
+        return self.async_show_form(
+            step_id="init",
+            data_schema=mikrotik_options_schema(dict(self.config_entry.options)),
             errors=errors,
         )

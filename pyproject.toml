@@ -7,7 +7,7 @@ name = "proton-mikrotik-wg"
 version = "0.1.8"
 description = "Home Assistant integration: Proton WireGuard on a single MikroTik interface"
 requires-python = ">=3.12"
-dependencies = ["voluptuous", "proton-client>=0.5.1", "cryptography>=41"]
+dependencies = ["voluptuous", "proton-client>=0.5.1", "cryptography>=41", "librouteros>=3.2.0"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "pytest-cov>=5", "pytest-asyncio>=0.24"]
@@ -33,5 +33,5 @@ skip_covered = false
 exclude_lines = [
   "pragma: no cover",
   "if TYPE_CHECKING:",
-  "\\.\\.\\.",
+  "^\\s*\\.\\.\\.\\s*$",
 ]

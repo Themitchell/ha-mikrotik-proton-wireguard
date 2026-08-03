@@ -24,3 +24,15 @@ CONF_WG_ENDPOINT_HOST = "wg_endpoint_host"
 CONF_WG_ENDPOINT_PORT = "wg_endpoint_port"
 CONF_WG_CLIENT_ADDRESS = "wg_client_address"
 CONF_WG_EXPIRATION_TIME = "wg_expiration_time"
+
+CONF_MIKROTIK_HOST = "mikrotik_host"
+CONF_MIKROTIK_USERNAME = "mikrotik_username"
+CONF_MIKROTIK_PASSWORD = "mikrotik_password"
+CONF_MIKROTIK_PORT = "mikrotik_port"
+CONF_MIKROTIK_USE_SSL = "mikrotik_use_ssl"
+CONF_MIKROTIK_WAN_GATEWAY = "mikrotik_wan_gateway"
+
+DEFAULT_MIKROTIK_PORT = 8729
+DEFAULT_MIKROTIK_USE_SSL = True
+
+SERVICE_APPLY_WIREGUARD = "apply_wireguard"

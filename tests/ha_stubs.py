@@ -81,6 +81,38 @@ class ConfigFlow:
         return self.async_abort(reason=reason)
 
 
+class OptionsFlow:
+    """Enough of HA OptionsFlow for unit-testing configure steps."""
+
+    def __init__(self, config_entry: Any) -> None:
+        self.config_entry = config_entry
+        self.hass: Any = None
+
+    def async_show_form(
+        self,
+        *,
+        step_id: str,
+        data_schema: Any = None,
+        errors: dict[str, str] | None = None,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        return {
+            "type": FlowResultType.FORM,
+            "step_id": step_id,
+            "data_schema": data_schema,
+            "errors": errors or {},
+        }
+
+    def async_create_entry(
+        self, *, title: str, data: dict[str, Any]
+    ) -> dict[str, Any]:
+        return {
+            "type": FlowResultType.CREATE_ENTRY,
+            "title": title,
+            "data": data,
+        }
+
+
 def install_homeassistant_stubs() -> None:
     """Register stub modules before importing the integration package."""
     ha = ModuleType("homeassistant")
@@ -88,6 +120,7 @@ def install_homeassistant_stubs() -> None:
 
     config_entries = ModuleType("homeassistant.config_entries")
     config_entries.ConfigFlow = ConfigFlow
+    config_entries.OptionsFlow = OptionsFlow
     config_entries.ConfigEntry = SimpleNamespace
 
     data_entry_flow = ModuleType("homeassistant.data_entry_flow")
