@@ -96,6 +96,7 @@ def install_homeassistant_stubs() -> None:
 
     core = ModuleType("homeassistant.core")
     core.HomeAssistant = object
+    core.ServiceCall = SimpleNamespace
 
     exceptions = ModuleType("homeassistant.exceptions")
     exceptions.ConfigEntryAuthFailed = ConfigEntryAuthFailed

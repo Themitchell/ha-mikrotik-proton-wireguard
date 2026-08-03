@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from .const import DOMAIN
+from .services import async_setup_services, async_unload_services
 from .session_manager import ProtonSessionManager
 
 if TYPE_CHECKING:
@@ -20,6 +21,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     manager = ProtonSessionManager(hass, entry)
     await manager.async_setup()
     hass.data[DOMAIN][entry.entry_id] = manager
+    await async_setup_services(hass)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
 
@@ -32,4 +34,5 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
         hass.data[DOMAIN].pop(entry.entry_id, None)
+        await async_unload_services(hass)
     return unload_ok
