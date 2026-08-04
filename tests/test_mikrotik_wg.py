@@ -9,8 +9,13 @@ import pytest
 
 from proton_mikrotik_wg.const import DEFAULT_WG_INTERFACE
 from proton_mikrotik_wg.mikrotik_wg import (
+    EGRESS_MASQ_COMMENT,
+    EGRESS_ROUTE_COMMENT,
     ENDPOINT_ROUTE_COMMENT,
     apply_tunnel_only,
+    disable_egress,
+    enable_egress,
+    is_egress_enabled,
 )
 from proton_mikrotik_wg.wg_credentials import WireGuardCredential
 
@@ -62,6 +67,10 @@ class FakePath:
                 row.update(kwargs)
                 return
         raise KeyError(row_id)
+
+    def remove(self, *ids):
+        rows = self.store.get(self.path, [])
+        self.store[self.path] = [row for row in rows if row[".id"] not in ids]
 
 
 @dataclass
@@ -182,3 +191,88 @@ def test_librouteros_adapter_close_without_close_method():
 
     api = MagicMock(spec=[])
     LibRouterOsClient(api).close()
+
+
+def _seed_pppoe(api: FakeRouterOs, name: str = "zen", distance: int = 1) -> None:
+    api.path("interface", "pppoe-client").add(
+        name=name, **{"default-route-distance": distance}
+    )
+
+
+def test_enable_egress_adds_default_route_masq_and_raises_zen_distance():
+    api = FakeRouterOs()
+    _seed_pppoe(api)
+
+    enable_egress(api, wan_interface="zen")
+
+    assert is_egress_enabled(api) is True
+    routes = api.path("ip", "route").select(comment=EGRESS_ROUTE_COMMENT)
+    assert len(routes) == 1
+    assert routes[0]["dst-address"] == "0.0.0.0/0"
+    assert routes[0]["gateway"] == DEFAULT_WG_INTERFACE
+    assert routes[0]["distance"] == "1"
+
+    nat = api.path("ip", "firewall", "nat").select(comment=EGRESS_MASQ_COMMENT)
+    assert len(nat) == 1
+    assert nat[0]["chain"] == "srcnat"
+    assert nat[0]["action"] == "masquerade"
+    assert nat[0]["out-interface"] == DEFAULT_WG_INTERFACE
+
+    pppoe = api.path("interface", "pppoe-client").select(name="zen")
+    assert pppoe[0]["default-route-distance"] == "2"
+
+
+def test_disable_egress_removes_route_masq_and_restores_zen_distance():
+    api = FakeRouterOs()
+    _seed_pppoe(api)
+    enable_egress(api, wan_interface="zen")
+    disable_egress(api, wan_interface="zen")
+
+    assert is_egress_enabled(api) is False
+    assert api.path("ip", "route").select(comment=EGRESS_ROUTE_COMMENT) == []
+    assert api.path("ip", "firewall", "nat").select(comment=EGRESS_MASQ_COMMENT) == []
+    assert (
+        api.path("interface", "pppoe-client").select(name="zen")[0][
+            "default-route-distance"
+        ]
+        == "1"
+    )
+
+
+def test_enable_egress_is_idempotent():
+    api = FakeRouterOs()
+    _seed_pppoe(api)
+    enable_egress(api, wan_interface="zen")
+    enable_egress(api, wan_interface="zen")
+    assert len(api.path("ip", "route").select(comment=EGRESS_ROUTE_COMMENT)) == 1
+    assert len(api.path("ip", "firewall", "nat").select(comment=EGRESS_MASQ_COMMENT)) == 1
+
+
+def test_enable_egress_requires_pppoe_interface():
+    api = FakeRouterOs()
+    with pytest.raises(ValueError, match="pppoe"):
+        enable_egress(api, wan_interface="zen")
+
+
+def test_librouteros_adapter_remove():
+    from proton_mikrotik_wg.mikrotik_wg import LibRouterOsPath
+
+    rows = [{"name": "a", ".id": "*1"}, {"name": "b", ".id": "*2"}]
+
+    class RawPath:
+        def __iter__(self):
+            return iter(rows)
+
+        def remove(self, *ids):
+            self.removed = ids
+
+        def add(self, **kwargs):
+            return "*9"
+
+        def update(self, **kwargs):
+            return None
+
+    raw = RawPath()
+    path = LibRouterOsPath(raw)
+    path.remove("*1")
+    assert raw.removed == ("*1",)
