@@ -47,6 +47,7 @@ def entry():
             "refresh_token": "refresh-old",
             "scope": ["full", "self"],
         },
+        options={},
     )
 
 

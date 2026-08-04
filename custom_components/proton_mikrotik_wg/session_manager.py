@@ -9,6 +9,7 @@ from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.event import async_track_time_interval
 
 from .const import (
+    CONF_EGRESS_ENABLED,
     CONF_MIKROTIK_HOST,
     CONF_MIKROTIK_PASSWORD,
     CONF_MIKROTIK_PORT,
@@ -32,6 +33,9 @@ from .mikrotik_client import open_mikrotik_api
 from .mikrotik_wg import (
     LibRouterOsClient,
     apply_tunnel_only,
+    disable_egress,
+    enable_egress,
+    is_egress_enabled,
     wireguard_credential_from_entry_data,
 )
 from .proton_auth import InvalidCredentials, ProtonAuthClient, ProtonSessionData
@@ -77,6 +81,8 @@ class ProtonSessionManager:
         self._unsub = async_track_time_interval(
             self.hass, self._async_scheduled_refresh, self.refresh_interval
         )
+        if self.entry.options.get(CONF_EGRESS_ENABLED) and self._mikrotik_configured():
+            await self.async_set_egress(True)
 
     async def async_unload(self) -> None:
         """Cancel periodic refresh."""
@@ -98,6 +104,36 @@ class ProtonSessionManager:
         merged.update(entry_data_from_session(updated))
         self.hass.config_entries.async_update_entry(self.entry, data=merged)
         return updated
+
+    def _mikrotik_configured(self) -> bool:
+        options = self.entry.options
+        return all(
+            options.get(key)
+            for key in (
+                CONF_MIKROTIK_HOST,
+                CONF_MIKROTIK_USERNAME,
+                CONF_MIKROTIK_PASSWORD,
+                CONF_MIKROTIK_WAN_GATEWAY,
+            )
+        )
+
+    def _require_mikrotik_options(self) -> dict[str, Any]:
+        options = dict(self.entry.options)
+        if not self._mikrotik_configured():
+            raise ValueError(
+                "MikroTik is not configured — use Configure on the integration"
+            )
+        return options
+
+    def _open_mikrotik(self, options: dict[str, Any]) -> LibRouterOsClient:
+        api = open_mikrotik_api(
+            host=str(options[CONF_MIKROTIK_HOST]),
+            username=str(options[CONF_MIKROTIK_USERNAME]),
+            password=str(options[CONF_MIKROTIK_PASSWORD]),
+            port=int(options.get(CONF_MIKROTIK_PORT, DEFAULT_MIKROTIK_PORT)),
+            use_ssl=bool(options.get(CONF_MIKROTIK_USE_SSL, DEFAULT_MIKROTIK_USE_SSL)),
+        )
+        return LibRouterOsClient(api)
 
     async def async_provision_wireguard(
         self, *, device_name: str = DEFAULT_WG_DEVICE_NAME
@@ -132,34 +168,12 @@ class ProtonSessionManager:
 
     async def async_apply_wireguard(self) -> WireGuardCredential:
         """Push the stored credential onto MikroTik as a tunnel-only config."""
-        options = dict(self.entry.options)
-        required = (
-            CONF_MIKROTIK_HOST,
-            CONF_MIKROTIK_USERNAME,
-            CONF_MIKROTIK_PASSWORD,
-            CONF_MIKROTIK_WAN_GATEWAY,
-        )
-        missing = [key for key in required if not options.get(key)]
-        if missing:
-            raise ValueError(
-                "MikroTik is not configured — use Configure on the integration "
-                f"(missing {', '.join(missing)})"
-            )
-
+        options = self._require_mikrotik_options()
         cred = wireguard_credential_from_entry_data(self.entry.data)
         wan_gateway = str(options[CONF_MIKROTIK_WAN_GATEWAY])
 
         def _apply() -> None:
-            api = open_mikrotik_api(
-                host=str(options[CONF_MIKROTIK_HOST]),
-                username=str(options[CONF_MIKROTIK_USERNAME]),
-                password=str(options[CONF_MIKROTIK_PASSWORD]),
-                port=int(options.get(CONF_MIKROTIK_PORT, DEFAULT_MIKROTIK_PORT)),
-                use_ssl=bool(
-                    options.get(CONF_MIKROTIK_USE_SSL, DEFAULT_MIKROTIK_USE_SSL)
-                ),
-            )
-            client = LibRouterOsClient(api)
+            client = self._open_mikrotik(options)
             try:
                 apply_tunnel_only(client, cred, wan_gateway=wan_gateway)
             finally:
@@ -167,3 +181,36 @@ class ProtonSessionManager:
 
         await self.hass.async_add_executor_job(_apply)
         return cred
+
+    async def async_get_egress_enabled(self) -> bool:
+        """Read whether whole-home VPN egress is currently enabled on the router."""
+        options = self._require_mikrotik_options()
+
+        def _read() -> bool:
+            client = self._open_mikrotik(options)
+            try:
+                return is_egress_enabled(client)
+            finally:
+                client.close()
+
+        return await self.hass.async_add_executor_job(_read)
+
+    async def async_set_egress(self, enabled: bool) -> None:
+        """Enable or disable whole-home VPN egress on the router."""
+        options = self._require_mikrotik_options()
+        wan_interface = str(options[CONF_MIKROTIK_WAN_GATEWAY])
+
+        def _set() -> None:
+            client = self._open_mikrotik(options)
+            try:
+                if enabled:
+                    enable_egress(client, wan_interface=wan_interface)
+                else:
+                    disable_egress(client, wan_interface=wan_interface)
+            finally:
+                client.close()
+
+        await self.hass.async_add_executor_job(_set)
+        merged = dict(self.entry.options)
+        merged[CONF_EGRESS_ENABLED] = enabled
+        self.hass.config_entries.async_update_entry(self.entry, options=merged)

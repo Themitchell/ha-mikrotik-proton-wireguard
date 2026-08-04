@@ -46,6 +46,7 @@ async def test_async_setup_entry_creates_session_manager():
             "refresh_token": "refresh-old",
             "scope": ["full"],
         },
+        options={},
     )
 
     client = MagicMock()

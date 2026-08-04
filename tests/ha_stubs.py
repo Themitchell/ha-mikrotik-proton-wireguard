@@ -178,5 +178,39 @@ def install_homeassistant_stubs() -> None:
     ha.helpers = helpers  # type: ignore[attr-defined]
     helpers.event = event  # type: ignore[attr-defined]
 
+    components = ModuleType("homeassistant.components")
+    switch_mod = ModuleType("homeassistant.components.switch")
+
+    class SwitchEntity:
+        """Minimal SwitchEntity stub."""
+
+        _attr_name: str | None = None
+        _attr_unique_id: str | None = None
+        _attr_is_on: bool | None = None
+        _attr_has_entity_name: bool = False
+        hass: Any = None
+        _writes: int = 0
+
+        @property
+        def name(self) -> str | None:
+            return self._attr_name
+
+        @property
+        def unique_id(self) -> str | None:
+            return self._attr_unique_id
+
+        @property
+        def is_on(self) -> bool | None:
+            return self._attr_is_on
+
+        def async_write_ha_state(self) -> None:
+            self._writes += 1
+
+    switch_mod.SwitchEntity = SwitchEntity
+    sys.modules["homeassistant.components"] = components
+    sys.modules["homeassistant.components.switch"] = switch_mod
+    ha.components = components  # type: ignore[attr-defined]
+    components.switch = switch_mod  # type: ignore[attr-defined]
+
 
 install_homeassistant_stubs()
