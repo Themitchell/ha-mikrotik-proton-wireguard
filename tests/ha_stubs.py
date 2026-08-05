@@ -23,6 +23,10 @@ class ConfigEntryAuthFailed(Exception):
     """Raised when stored Proton tokens can no longer be refreshed."""
 
 
+class HomeAssistantError(Exception):
+    """Raised for user-visible service/integration failures."""
+
+
 class ConfigFlow:
     """Enough of HA ConfigFlow for unit-testing our steps."""
 
@@ -146,6 +150,7 @@ def install_homeassistant_stubs() -> None:
 
     exceptions = ModuleType("homeassistant.exceptions")
     exceptions.ConfigEntryAuthFailed = ConfigEntryAuthFailed
+    exceptions.HomeAssistantError = HomeAssistantError
 
     helpers = ModuleType("homeassistant.helpers")
     event = ModuleType("homeassistant.helpers.event")

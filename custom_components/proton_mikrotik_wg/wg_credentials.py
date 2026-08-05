@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any, Protocol
 
+_LOGGER = logging.getLogger(__name__)
+
 DEFAULT_WG_PORT = 51820
 DEFAULT_CLIENT_ADDRESS = "10.2.0.2/32"
+HA_WG_DEVICE_PREFIX = "ha-wg-proton"
+CERTIFICATE_PAGE_SIZE = 50
 # Proton logical Features bits: Secure Core=1, TOR=2 (same as Proton WebClients).
 FEATURE_SECURE_CORE = 1
 FEATURE_TOR = 2
@@ -167,11 +172,80 @@ def create_wireguard_credential(
     )
 
 
-def fetch_vpn_max_tier(session: ProtonApiSession) -> int:
-    """Return the account MaxTier from Proton /vpn (0 = free)."""
-    payload = session.api_request("/vpn", method="get")
+def list_persistent_certificates(session: ProtonApiSession) -> list[dict[str, Any]]:
+    """Return all persistent WireGuard certificates on the Proton account."""
+    offset = 0
+    certificates: list[dict[str, Any]] = []
+    while True:
+        payload = session.api_request(
+            "/vpn/v1/certificate/all"
+            f"?Mode=persistent&Offset={offset}&Limit={CERTIFICATE_PAGE_SIZE}",
+            method="get",
+        )
+        batch = list(payload.get("Certificates") or [])
+        certificates.extend(batch)
+        if len(batch) < CERTIFICATE_PAGE_SIZE:
+            return certificates
+        offset += CERTIFICATE_PAGE_SIZE
+
+
+def delete_certificate(session: ProtonApiSession, *, serial_number: str) -> None:
+    """Revoke one persistent WireGuard certificate by serial number."""
+    session.api_request(
+        "/vpn/v1/certificate",
+        {"SerialNumber": serial_number},
+        method="delete",
+    )
+
+
+def _is_ha_managed_device_name(
+    device_name: str, *, name_prefix: str = HA_WG_DEVICE_PREFIX
+) -> bool:
+    return device_name == name_prefix or device_name.startswith(f"{name_prefix}-")
+
+
+def cleanup_previous_ha_certificates(
+    session: ProtonApiSession,
+    *,
+    keep_serial: str,
+    name_prefix: str = HA_WG_DEVICE_PREFIX,
+) -> tuple[list[str], list[str]]:
+    """Best-effort delete older HA-managed certs; keep the newly provisioned one.
+
+    Returns (deleted_serials, failure_messages). Delete may fail with Proton
+    scope errors (9100); callers should treat that as non-fatal.
+    """
+    deleted: list[str] = []
+    failed: list[str] = []
+    for cert in list_persistent_certificates(session):
+        serial = str(cert.get("SerialNumber") or "")
+        name = str(cert.get("DeviceName") or "")
+        if not serial or serial == keep_serial:
+            continue
+        if not _is_ha_managed_device_name(name, name_prefix=name_prefix):
+            continue
+        try:
+            delete_certificate(session, serial_number=serial)
+        except Exception as err:  # noqa: BLE001 — best-effort cleanup
+            failed.append(f"{serial}: {err}")
+            continue
+        deleted.append(serial)
+    return deleted, failed
+
+
+def fetch_vpn_max_tier(session: ProtonApiSession) -> int | None:
+    """Return account MaxTier from /vpn, or None if unavailable.
+
+    None means do not filter by tier (still exclude Secure Core/TOR).
+    """
+    try:
+        payload = session.api_request("/vpn", method="get")
+    except Exception:  # noqa: BLE001 — fall back to unscoped server list
+        return None
     vpn = payload.get("VPN") or {}
-    return int(vpn.get("MaxTier") or 0)
+    if "MaxTier" not in vpn:
+        return None
+    return int(vpn["MaxTier"])
 
 
 def provision_wireguard_credential(
@@ -180,16 +254,28 @@ def provision_wireguard_credential(
     device_name: str,
     server: ProtonLogicalServer | None = None,
 ) -> WireGuardCredential:
-    """Generate keys and register a certificate for the best allowed server."""
+    """Generate keys, register a certificate, and clean up prior HA certs."""
     if server is None:
         max_tier = fetch_vpn_max_tier(session)
         server = pick_least_loaded_server(
             list_logical_servers(session, max_tier=max_tier)
         )
     keys = generate_wireguard_keypair()
-    return create_wireguard_credential(
+    cred = create_wireguard_credential(
         session,
         server=server,
         keys=keys,
         device_name=device_name,
     )
+    deleted, failed = cleanup_previous_ha_certificates(
+        session, keep_serial=cred.serial_number
+    )
+    if deleted:
+        _LOGGER.info("Deleted previous HA WireGuard certs: %s", ", ".join(deleted))
+    if failed:
+        _LOGGER.warning(
+            "Could not delete previous HA WireGuard certs "
+            "(delete may need Proton account UI): %s",
+            "; ".join(failed),
+        )
+    return cred

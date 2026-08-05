@@ -87,8 +87,11 @@ async def test_async_provision_wireguard_uses_ha_device_name(hass):
 
     assert result is cred
     provision.assert_called_once()
-    assert provision.call_args.kwargs["device_name"] == DEFAULT_WG_DEVICE_NAME
-    assert provision.call_args.kwargs["device_name"].startswith("ha-")
+    device_name = provision.call_args.kwargs["device_name"]
+    assert device_name.startswith("ha-wg-proton-")
+    assert device_name != DEFAULT_WG_DEVICE_NAME
+    suffix = device_name.removeprefix("ha-wg-proton-")
+    assert len(suffix) == 15 and suffix[8] == "-" and suffix.replace("-", "").isdigit()
     hass.config_entries.async_update_entry.assert_called_once()
     updated = hass.config_entries.async_update_entry.call_args.kwargs["data"]
     assert updated[CONF_WG_DEVICE_NAME] == DEFAULT_WG_DEVICE_NAME

@@ -95,12 +95,14 @@ async def test_apply_service_calls_manager():
 
 @pytest.mark.asyncio
 async def test_provision_service_rejects_unknown_entry():
+    from homeassistant.exceptions import HomeAssistantError
+
     hass = MagicMock()
     hass.data = {DOMAIN: {}}
     hass.services.has_service = MagicMock(return_value=False)
     registered = _register_capture(hass)
     await async_setup_services(hass)
-    with pytest.raises(ValueError, match="No Proton"):
+    with pytest.raises(HomeAssistantError, match="No Proton"):
         await registered[SERVICE_PROVISION_WIREGUARD](
             SimpleNamespace(data={"entry_id": "missing"})
         )
@@ -123,13 +125,49 @@ async def test_provision_service_uses_explicit_entry_id():
 
 @pytest.mark.asyncio
 async def test_provision_service_rejects_when_not_configured():
+    from homeassistant.exceptions import HomeAssistantError
+
     hass = MagicMock()
     hass.data = {}
     hass.services.has_service = MagicMock(return_value=False)
     registered = _register_capture(hass)
     await async_setup_services(hass)
-    with pytest.raises(ValueError, match="not configured"):
+    with pytest.raises(HomeAssistantError, match="not configured"):
         await registered[SERVICE_PROVISION_WIREGUARD](SimpleNamespace(data={}))
+
+
+@pytest.mark.asyncio
+async def test_provision_service_surfaces_proton_errors():
+    from homeassistant.exceptions import HomeAssistantError
+
+    hass = MagicMock()
+    manager = MagicMock()
+    manager.async_provision_wireguard = AsyncMock(
+        side_effect=RuntimeError("DeviceName already used")
+    )
+    hass.data = {DOMAIN: {"abc": manager}}
+    hass.services.has_service = MagicMock(return_value=False)
+    registered = _register_capture(hass)
+    await async_setup_services(hass)
+    with pytest.raises(HomeAssistantError, match="DeviceName already used"):
+        await registered[SERVICE_PROVISION_WIREGUARD](SimpleNamespace(data={}))
+
+
+@pytest.mark.asyncio
+async def test_apply_service_surfaces_errors():
+    from homeassistant.exceptions import HomeAssistantError
+
+    hass = MagicMock()
+    manager = MagicMock()
+    manager.async_apply_wireguard = AsyncMock(
+        side_effect=RuntimeError("MikroTik is not configured")
+    )
+    hass.data = {DOMAIN: {"abc": manager}}
+    hass.services.has_service = MagicMock(return_value=False)
+    registered = _register_capture(hass)
+    await async_setup_services(hass)
+    with pytest.raises(HomeAssistantError, match="MikroTik is not configured"):
+        await registered[SERVICE_APPLY_WIREGUARD](SimpleNamespace(data={}))
 
 
 @pytest.mark.asyncio
