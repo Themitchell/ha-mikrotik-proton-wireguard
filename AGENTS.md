@@ -2,9 +2,10 @@
 
 ## Project context
 
-- This repo is a Home Assistant **custom integration** that creates/rotates a
-  single Proton VPN WireGuard credential and applies it to **one** MikroTik
-  WireGuard interface for whole-home egress.
+- This repo is a Home Assistant **custom integration** that creates/rotates
+  Proton VPN WireGuard credentials and applies them to MikroTik
+  `wg-proton-1`…`wg-proton-N` (N configurable 1–20, default 3) for ECMP
+  whole-home egress.
 - Install path at runtime: `/config/custom_components/proton_mikrotik_wg/`
   (HA config PVC). Not an add-on; HA runs on Kubernetes.
 - Pure library modules under `custom_components/proton_mikrotik_wg/` are unit
@@ -13,8 +14,9 @@
   modules when those land).
 - Proton account API is unofficial; prefer session tokens + injectable HTTP
   transport. Do not call live Proton or MikroTik from unit tests.
-- Single WireGuard interface only for now (e.g. `wg-proton`). Do not add a
-  multi-peer pool or multi-interface rotation unless the user asks.
+- Multi-tunnel ECMP uses interface-scoped gateways
+  (`10.2.0.1%wg-proton-{n}`) because every Proton peer shares `10.2.0.1`.
+  Do not add PCC/policy routing unless the user asks.
 - DNS hard rule: LAN clients use Pi-hole only; never push Proton DNS
   (`10.2.0.1`) to clients; do not leak internal DNS names.
 - Kill-switch (VPN on) and intentional ISP bypass are separate behaviours.

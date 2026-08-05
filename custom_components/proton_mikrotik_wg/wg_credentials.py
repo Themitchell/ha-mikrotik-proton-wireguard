@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any, Mapping, Protocol
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -153,6 +153,36 @@ def pick_least_loaded_server(
     return min(servers, key=lambda server: server.score)
 
 
+def pick_best_servers(
+    servers: list[ProtonLogicalServer],
+    *,
+    count: int,
+) -> list[ProtonLogicalServer]:
+    """Return up to ``count`` distinct logicals ordered by best (lowest) Score.
+
+    Distinct means unique logical name and unique entry IP.
+    """
+    if count < 1:
+        raise ValueError("count must be at least 1")
+    if not servers:
+        raise ValueError("no Proton servers available")
+    ordered = sorted(servers, key=lambda server: server.score)
+    picked: list[ProtonLogicalServer] = []
+    used_names: set[str] = set()
+    used_ips: set[str] = set()
+    for server in ordered:
+        if server.name in used_names or server.entry_ip in used_ips:
+            continue
+        picked.append(server)
+        used_names.add(server.name)
+        used_ips.add(server.entry_ip)
+        if len(picked) >= count:
+            return picked
+    raise ValueError(
+        f"not enough distinct Proton servers: need {count}, found {len(picked)}"
+    )
+
+
 def create_wireguard_credential(
     session: ProtonApiSession,
     *,
@@ -227,20 +257,24 @@ def _is_ha_managed_device_name(
 def cleanup_previous_ha_certificates(
     session: ProtonApiSession,
     *,
-    keep_serial: str,
+    keep_serial: str | None = None,
+    keep_serials: set[str] | frozenset[str] | None = None,
     name_prefix: str = HA_WG_DEVICE_PREFIX,
 ) -> tuple[list[str], list[str]]:
-    """Best-effort delete older HA-managed certs; keep the newly provisioned one.
+    """Best-effort delete older HA-managed certs; keep listed serials.
 
     Returns (deleted_serials, failure_messages). Delete may fail with Proton
     scope errors (9100); callers should treat that as non-fatal.
     """
+    keep = set(keep_serials or ())
+    if keep_serial is not None:
+        keep.add(keep_serial)
     deleted: list[str] = []
     failed: list[str] = []
     for cert in list_persistent_certificates(session):
         serial = str(cert.get("SerialNumber") or "")
         name = str(cert.get("DeviceName") or "")
-        if not serial or serial == keep_serial:
+        if not serial or serial in keep:
             continue
         if not _is_ha_managed_device_name(name, name_prefix=name_prefix):
             continue
@@ -299,3 +333,73 @@ def provision_wireguard_credential(
             "; ".join(failed),
         )
     return cred
+
+
+def _slot_device_name(slot: int, *, stamp: str | None = None) -> str:
+    from datetime import datetime, timezone
+
+    if stamp is None:
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    return f"{HA_WG_DEVICE_PREFIX}-{slot}-{stamp}"
+
+
+def provision_wireguard_slots(
+    session: ProtonApiSession,
+    *,
+    count: int,
+    existing: Mapping[int, WireGuardCredential] | None = None,
+    slot: int | None = None,
+) -> dict[int, WireGuardCredential]:
+    """Provision ``count`` tunnels (or one ``slot``) on distinct Proton servers."""
+    if count < 1:
+        raise ValueError("count must be at least 1")
+    current = dict(existing or {})
+    slots_to_provision = [slot] if slot is not None else list(range(1, count + 1))
+    for target in slots_to_provision:
+        if target < 1 or target > count:
+            raise ValueError(f"slot must be between 1 and {count}, got {target}")
+
+    max_tier = fetch_vpn_max_tier(session)
+    available = list_logical_servers(session, max_tier=max_tier)
+
+    if slot is None:
+        servers = pick_best_servers(available, count=count)
+        result: dict[int, WireGuardCredential] = {}
+        for index, server in enumerate(servers, start=1):
+            keys = generate_wireguard_keypair()
+            result[index] = create_wireguard_credential(
+                session,
+                server=server,
+                keys=keys,
+                device_name=_slot_device_name(index),
+            )
+    else:
+        used_ips = {
+            cred.endpoint_host for s, cred in current.items() if s != slot and s <= count
+        }
+        candidates = [
+            server for server in available if server.entry_ip not in used_ips
+        ]
+        server = pick_best_servers(candidates or available, count=1)[0]
+        keys = generate_wireguard_keypair()
+        result = {
+            s: cred for s, cred in current.items() if s <= count and s != slot
+        }
+        result[slot] = create_wireguard_credential(
+            session,
+            server=server,
+            keys=keys,
+            device_name=_slot_device_name(slot),
+        )
+
+    keep = {cred.serial_number for cred in result.values()}
+    deleted, failed = cleanup_previous_ha_certificates(session, keep_serials=keep)
+    if deleted:
+        _LOGGER.info("Deleted previous HA WireGuard certs: %s", ", ".join(deleted))
+    if failed:
+        _LOGGER.warning(
+            "Could not delete previous HA WireGuard certs "
+            "(delete may need Proton account UI): %s",
+            "; ".join(failed),
+        )
+    return dict(sorted(result.items()))

@@ -17,7 +17,9 @@ from .const import (
     CONF_MIKROTIK_WAN_GATEWAY,
     CONF_PASSWORD,
     CONF_TOTP,
+    CONF_TUNNEL_COUNT,
     CONF_USERNAME,
+    DEFAULT_TUNNEL_COUNT,
     DOMAIN,
 )
 from .mikrotik_client import (
@@ -229,6 +231,9 @@ class ProtonMikroTikWgOptionsFlow(config_entries.OptionsFlow):
                         CONF_MIKROTIK_WAN_GATEWAY: user_input[
                             CONF_MIKROTIK_WAN_GATEWAY
                         ],
+                        CONF_TUNNEL_COUNT: int(
+                            user_input.get(CONF_TUNNEL_COUNT, DEFAULT_TUNNEL_COUNT)
+                        ),
                     },
                 )
 

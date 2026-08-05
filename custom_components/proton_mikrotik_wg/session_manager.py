@@ -16,31 +16,23 @@ from .const import (
     CONF_MIKROTIK_USERNAME,
     CONF_MIKROTIK_USE_SSL,
     CONF_MIKROTIK_WAN_GATEWAY,
-    CONF_WG_CLIENT_ADDRESS,
-    CONF_WG_CLIENT_PRIVATE_KEY,
-    CONF_WG_CLIENT_PUBLIC_KEY,
-    CONF_WG_DEVICE_NAME,
-    CONF_WG_ENDPOINT_HOST,
-    CONF_WG_ENDPOINT_PORT,
-    CONF_WG_EXPIRATION_TIME,
-    CONF_WG_SERIAL_NUMBER,
-    CONF_WG_SERVER_PUBLIC_KEY,
+    CONF_TUNNEL_COUNT,
     DEFAULT_MIKROTIK_PORT,
     DEFAULT_MIKROTIK_USE_SSL,
-    DEFAULT_WG_DEVICE_NAME,
+    DEFAULT_TUNNEL_COUNT,
 )
 from .mikrotik_client import open_mikrotik_api
 from .mikrotik_wg import (
     LibRouterOsClient,
-    apply_tunnel_only,
+    apply_wireguard_slots,
     disable_egress,
     enable_egress,
     is_egress_enabled,
-    wireguard_credential_from_entry_data,
 )
 from .proton_auth import InvalidCredentials, ProtonAuthClient, ProtonSessionData
 from .session_store import entry_data_from_session, session_data_from_entry
-from .wg_credentials import WireGuardCredential, provision_wireguard_credential
+from .wg_credentials import WireGuardCredential, provision_wireguard_slots
+from .wg_slots import entry_data_from_slots, slots_from_entry_data
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
@@ -74,6 +66,10 @@ class ProtonSessionManager:
     @property
     def data(self) -> ProtonSessionData:
         return self._client.data
+
+    def tunnel_count(self) -> int:
+        """Configured simultaneous tunnel count (1–20)."""
+        return int(self.entry.options.get(CONF_TUNNEL_COUNT, DEFAULT_TUNNEL_COUNT))
 
     async def async_setup(self) -> None:
         """Refresh once on startup and schedule periodic refresh."""
@@ -135,58 +131,60 @@ class ProtonSessionManager:
         )
         return LibRouterOsClient(api)
 
+    def _require_slots(self) -> dict[int, WireGuardCredential]:
+        slots = slots_from_entry_data(self.entry.data)
+        if not slots:
+            raise ValueError(
+                "WireGuard credential is not provisioned on this entry"
+            )
+        return slots
+
     async def async_provision_wireguard(
-        self, *, device_name: str = DEFAULT_WG_DEVICE_NAME
-    ) -> WireGuardCredential:
-        """Create one Proton WireGuard certificate labeled for Home Assistant."""
-        if not device_name.startswith("ha-"):
-            raise ValueError("device_name must start with 'ha-'")
-        # Proton requires unique DeviceName; stamp UTC time so re-runs are sortable.
-        if device_name == DEFAULT_WG_DEVICE_NAME:
-            from datetime import datetime, timezone
-
-            stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-            device_name = f"{DEFAULT_WG_DEVICE_NAME}-{stamp}"
-
+        self, *, slot: int | None = None
+    ) -> dict[int, WireGuardCredential]:
+        """Provision all tunnels (or one slot) and store credentials on the entry."""
+        count = self.tunnel_count()
+        existing = slots_from_entry_data(self.entry.data)
         session = self._client.live_session()
-        cred = await self.hass.async_add_executor_job(
-            lambda: provision_wireguard_credential(
-                session, device_name=device_name
+        slots = await self.hass.async_add_executor_job(
+            lambda: provision_wireguard_slots(
+                session,
+                count=count,
+                existing=existing,
+                slot=slot,
             )
         )
         merged = dict(self.entry.data)
+        # Drop legacy flat WG keys when rewriting slots.
+        for key in list(merged):
+            if key.startswith("wg_") and key != "wg_slots":
+                merged.pop(key, None)
         merged.update(entry_data_from_session(self._client.data))
-        merged.update(
-            {
-                CONF_WG_DEVICE_NAME: cred.device_name,
-                CONF_WG_SERIAL_NUMBER: cred.serial_number,
-                CONF_WG_CLIENT_PRIVATE_KEY: cred.client_private_key,
-                CONF_WG_CLIENT_PUBLIC_KEY: cred.client_public_key,
-                CONF_WG_SERVER_PUBLIC_KEY: cred.server_public_key,
-                CONF_WG_ENDPOINT_HOST: cred.endpoint_host,
-                CONF_WG_ENDPOINT_PORT: cred.endpoint_port,
-                CONF_WG_CLIENT_ADDRESS: cred.client_address,
-                CONF_WG_EXPIRATION_TIME: cred.expiration_time,
-            }
-        )
+        merged.update(entry_data_from_slots(slots))
         self.hass.config_entries.async_update_entry(self.entry, data=merged)
-        return cred
+        return slots
 
-    async def async_apply_wireguard(self) -> WireGuardCredential:
-        """Push the stored credential onto MikroTik as a tunnel-only config."""
+    async def async_apply_wireguard(self) -> dict[int, WireGuardCredential]:
+        """Push stored slot credentials onto MikroTik as tunnel-only configs."""
         options = self._require_mikrotik_options()
-        cred = wireguard_credential_from_entry_data(self.entry.data)
+        slots = self._require_slots()
         wan_gateway = str(options[CONF_MIKROTIK_WAN_GATEWAY])
+        count = self.tunnel_count()
 
         def _apply() -> None:
             client = self._open_mikrotik(options)
             try:
-                apply_tunnel_only(client, cred, wan_gateway=wan_gateway)
+                apply_wireguard_slots(
+                    client,
+                    slots,
+                    wan_gateway=wan_gateway,
+                    tunnel_count=count,
+                )
             finally:
                 client.close()
 
         await self.hass.async_add_executor_job(_apply)
-        return cred
+        return {s: c for s, c in slots.items() if s <= count}
 
     async def async_get_egress_enabled(self) -> bool:
         """Read whether whole-home VPN egress is currently enabled on the router."""
@@ -202,15 +200,18 @@ class ProtonSessionManager:
         return await self.hass.async_add_executor_job(_read)
 
     async def async_set_egress(self, enabled: bool) -> None:
-        """Enable or disable whole-home VPN egress on the router."""
+        """Enable or disable ECMP whole-home VPN egress on the router."""
         options = self._require_mikrotik_options()
         wan_interface = str(options[CONF_MIKROTIK_WAN_GATEWAY])
+        slots = self._require_slots() if enabled else {}
+        count = self.tunnel_count()
+        active = {s: c for s, c in slots.items() if s <= count}
 
         def _set() -> None:
             client = self._open_mikrotik(options)
             try:
                 if enabled:
-                    enable_egress(client, wan_interface=wan_interface)
+                    enable_egress(client, wan_interface=wan_interface, slots=active)
                 else:
                     disable_egress(client, wan_interface=wan_interface)
             finally:
