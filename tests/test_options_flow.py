@@ -19,6 +19,9 @@ from proton_mikrotik_wg.const import (
     CONF_MIKROTIK_USE_SSL,
     CONF_MIKROTIK_WAN_GATEWAY,
     CONF_TUNNEL_COUNT,
+    CONF_VPN_EXIT_COUNTRY,
+    DOMAIN,
+    VPN_EXIT_COUNTRY_ANY,
 )
 from proton_mikrotik_wg.mikrotik_client import (
     CannotConnectMikroTik,
@@ -28,9 +31,10 @@ from proton_mikrotik_wg.mikrotik_client import (
 
 @pytest.fixture
 def options_flow(hass):
-    entry = SimpleNamespace(options={})
+    entry = SimpleNamespace(entry_id="abc", options={})
     flow = ProtonMikroTikWgOptionsFlow()
     flow.hass = hass
+    hass.data = {DOMAIN: {}}
     # HA injects the entry; do not assign the read-only config_entry property.
     flow._config_entry = entry
     return flow
@@ -53,9 +57,12 @@ async def test_options_step_shows_form(options_flow):
 
 @pytest.mark.asyncio
 async def test_options_step_saves_on_successful_connect(options_flow):
-    with patch(
-        "proton_mikrotik_wg.config_flow.check_mikrotik_connection"
-    ) as check:
+    with (
+        patch("proton_mikrotik_wg.config_flow.check_mikrotik_connection") as check,
+        patch.object(
+            options_flow, "_async_exit_countries", return_value=["GB", "NL"]
+        ),
+    ):
         result = await options_flow.async_step_init(
             {
                 CONF_MIKROTIK_HOST: "mikrotik.lan",
@@ -65,13 +72,62 @@ async def test_options_step_saves_on_successful_connect(options_flow):
                 CONF_MIKROTIK_USE_SSL: True,
                 CONF_MIKROTIK_WAN_GATEWAY: "192.0.2.1",
                 CONF_TUNNEL_COUNT: 5,
+                CONF_VPN_EXIT_COUNTRY: "GB",
             }
         )
     assert result["type"] == "create_entry"
     assert result["data"][CONF_MIKROTIK_HOST] == "mikrotik.lan"
     assert result["data"][CONF_MIKROTIK_WAN_GATEWAY] == "192.0.2.1"
     assert result["data"][CONF_TUNNEL_COUNT] == 5
+    assert result["data"][CONF_VPN_EXIT_COUNTRY] == "GB"
     check.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_options_step_fetches_countries_for_form(options_flow):
+    manager = SimpleNamespace()
+    manager.client = SimpleNamespace(live_session=lambda: "session")
+    options_flow.hass.data = {DOMAIN: {"abc": manager}}
+    with patch(
+        "proton_mikrotik_wg.config_flow.list_exit_countries",
+        return_value=["DE", "GB"],
+    ) as list_countries:
+        result = await options_flow.async_step_init()
+    assert result["type"] == "form"
+    list_countries.assert_called_once_with("session")
+
+
+@pytest.mark.asyncio
+async def test_options_step_falls_back_when_country_fetch_fails(options_flow):
+    manager = SimpleNamespace()
+    manager.client = SimpleNamespace(live_session=lambda: "session")
+    options_flow.hass.data = {DOMAIN: {"abc": manager}}
+    with patch(
+        "proton_mikrotik_wg.config_flow.list_exit_countries",
+        side_effect=RuntimeError("api down"),
+    ):
+        result = await options_flow.async_step_init()
+    assert result["type"] == "form"
+
+
+@pytest.mark.asyncio
+async def test_options_step_defaults_exit_country_any(options_flow):
+    with (
+        patch("proton_mikrotik_wg.config_flow.check_mikrotik_connection"),
+        patch.object(options_flow, "_async_exit_countries", return_value=[]),
+    ):
+        result = await options_flow.async_step_init(
+            {
+                CONF_MIKROTIK_HOST: "mikrotik.lan",
+                CONF_MIKROTIK_USERNAME: "admin",
+                CONF_MIKROTIK_PASSWORD: "secret",
+                CONF_MIKROTIK_PORT: 8729,
+                CONF_MIKROTIK_USE_SSL: True,
+                CONF_MIKROTIK_WAN_GATEWAY: "192.0.2.1",
+                CONF_TUNNEL_COUNT: 3,
+            }
+        )
+    assert result["data"][CONF_VPN_EXIT_COUNTRY] == VPN_EXIT_COUNTRY_ANY
 
 
 @pytest.mark.asyncio

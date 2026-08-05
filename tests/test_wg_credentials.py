@@ -149,7 +149,94 @@ def test_list_logical_servers_parses_online_instances():
     assert servers[0].name == "UK#1"
     assert servers[0].entry_ip == "1.2.3.4"
     assert servers[0].load == 12
+    assert servers[0].exit_country == ""
     session.api_request.assert_called_once_with("/vpn/logicals", method="get")
+
+
+def test_list_logical_servers_parses_and_filters_exit_country():
+    from proton_mikrotik_wg.wg_credentials import list_logical_servers
+
+    session = MagicMock()
+    session.api_request.return_value = {
+        "Code": 1000,
+        "LogicalServers": [
+            {
+                "Name": "UK#1",
+                "Status": 1,
+                "Load": 10,
+                "Features": 0,
+                "Tier": 0,
+                "Score": 1.0,
+                "ExitCountry": "GB",
+                "Servers": [
+                    {"EntryIP": "1.1.1.1", "X25519PublicKey": "gb=="}
+                ],
+            },
+            {
+                "Name": "NL#1",
+                "Status": 1,
+                "Load": 10,
+                "Features": 0,
+                "Tier": 0,
+                "Score": 0.5,
+                "ExitCountry": "NL",
+                "Servers": [
+                    {"EntryIP": "2.2.2.2", "X25519PublicKey": "nl=="}
+                ],
+            },
+        ],
+    }
+    servers = list_logical_servers(session, exit_country="gb")
+    assert [s.name for s in servers] == ["UK#1"]
+    assert servers[0].exit_country == "GB"
+
+
+def test_list_exit_countries_returns_sorted_unique_codes():
+    from proton_mikrotik_wg.wg_credentials import list_exit_countries
+
+    session = MagicMock()
+    session.api_request.return_value = {
+        "Code": 1000,
+        "LogicalServers": [
+            {
+                "Name": "NL#1",
+                "Status": 1,
+                "Load": 1,
+                "Features": 0,
+                "Tier": 0,
+                "Score": 1.0,
+                "ExitCountry": "NL",
+                "Servers": [
+                    {"EntryIP": "2.2.2.2", "X25519PublicKey": "nl=="}
+                ],
+            },
+            {
+                "Name": "UK#1",
+                "Status": 1,
+                "Load": 1,
+                "Features": 0,
+                "Tier": 0,
+                "Score": 1.0,
+                "ExitCountry": "GB",
+                "Servers": [
+                    {"EntryIP": "1.1.1.1", "X25519PublicKey": "gb=="}
+                ],
+            },
+            {
+                "Name": "UK#2",
+                "Status": 1,
+                "Load": 1,
+                "Features": 0,
+                "Tier": 0,
+                "Score": 2.0,
+                "ExitCountry": "GB",
+                "Servers": [
+                    {"EntryIP": "1.1.1.2", "X25519PublicKey": "gb2=="}
+                ],
+            },
+        ],
+    }
+    assert list_exit_countries(session) == ["GB", "NL"]
 
 
 def test_list_logical_servers_skips_secure_core_and_tor():
@@ -600,6 +687,7 @@ def test_provision_wireguard_slots_creates_distinct_servers():
                     "Features": 0,
                     "Tier": 2,
                     "Score": 0.8,
+                    "ExitCountry": "GB",
                     "Servers": [
                         {"EntryIP": "1.1.1.1", "X25519PublicKey": "a=="}
                     ],
@@ -611,6 +699,7 @@ def test_provision_wireguard_slots_creates_distinct_servers():
                     "Features": 0,
                     "Tier": 2,
                     "Score": 0.2,
+                    "ExitCountry": "GB",
                     "Servers": [
                         {"EntryIP": "2.2.2.2", "X25519PublicKey": "b=="}
                     ],
@@ -638,6 +727,107 @@ def test_provision_wireguard_slots_creates_distinct_servers():
     assert slots[2].endpoint_host == "1.1.1.1"
     assert slots[1].device_name.startswith("ha-wg-proton-1-")
     assert slots[2].device_name.startswith("ha-wg-proton-2-")
+
+
+def test_provision_wireguard_slots_treats_any_as_no_filter():
+    from proton_mikrotik_wg.wg_credentials import provision_wireguard_slots
+
+    session = MagicMock()
+    session.api_request.side_effect = [
+        {"Code": 1000, "VPN": {"MaxTier": 2}},
+        {
+            "Code": 1000,
+            "LogicalServers": [
+                {
+                    "Name": "NL#1",
+                    "Status": 1,
+                    "Load": 5,
+                    "Features": 0,
+                    "Tier": 2,
+                    "Score": 0.1,
+                    "ExitCountry": "NL",
+                    "Servers": [
+                        {"EntryIP": "2.2.2.2", "X25519PublicKey": "nl=="}
+                    ],
+                },
+                {
+                    "Name": "UK#1",
+                    "Status": 1,
+                    "Load": 5,
+                    "Features": 0,
+                    "Tier": 2,
+                    "Score": 0.2,
+                    "ExitCountry": "GB",
+                    "Servers": [
+                        {"EntryIP": "1.1.1.1", "X25519PublicKey": "gb=="}
+                    ],
+                },
+            ],
+        },
+        {
+            "Code": 1000,
+            "SerialNumber": "sn-nl",
+            "DeviceName": "ha-wg-proton-1-x",
+            "ExpirationTime": 100,
+        },
+        {
+            "Code": 1000,
+            "SerialNumber": "sn-gb",
+            "DeviceName": "ha-wg-proton-2-x",
+            "ExpirationTime": 200,
+        },
+        {"Code": 1000, "Certificates": []},
+    ]
+    slots = provision_wireguard_slots(session, count=2, exit_country="any")
+    assert slots[1].endpoint_host == "2.2.2.2"
+    assert slots[2].endpoint_host == "1.1.1.1"
+
+
+def test_provision_wireguard_slots_filters_exit_country():
+    from proton_mikrotik_wg.wg_credentials import provision_wireguard_slots
+
+    session = MagicMock()
+    session.api_request.side_effect = [
+        {"Code": 1000, "VPN": {"MaxTier": 2}},
+        {
+            "Code": 1000,
+            "LogicalServers": [
+                {
+                    "Name": "NL#1",
+                    "Status": 1,
+                    "Load": 5,
+                    "Features": 0,
+                    "Tier": 2,
+                    "Score": 0.1,
+                    "ExitCountry": "NL",
+                    "Servers": [
+                        {"EntryIP": "2.2.2.2", "X25519PublicKey": "nl=="}
+                    ],
+                },
+                {
+                    "Name": "UK#1",
+                    "Status": 1,
+                    "Load": 5,
+                    "Features": 0,
+                    "Tier": 2,
+                    "Score": 0.2,
+                    "ExitCountry": "GB",
+                    "Servers": [
+                        {"EntryIP": "1.1.1.1", "X25519PublicKey": "gb=="}
+                    ],
+                },
+            ],
+        },
+        {
+            "Code": 1000,
+            "SerialNumber": "sn-gb",
+            "DeviceName": "ha-wg-proton-1-x",
+            "ExpirationTime": 100,
+        },
+        {"Code": 1000, "Certificates": []},
+    ]
+    slots = provision_wireguard_slots(session, count=1, exit_country="GB")
+    assert slots[1].endpoint_host == "1.1.1.1"
 
 
 def test_provision_wireguard_slots_one_slot_keeps_others():

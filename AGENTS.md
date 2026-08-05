@@ -17,6 +17,9 @@
 - Multi-tunnel ECMP uses interface-scoped gateways
   (`10.2.0.1%wg-proton-{n}`) because every Proton peer shares `10.2.0.1`.
   Do not add PCC/policy routing unless the user asks.
+- Optional single `vpn_exit_country` (ISO code or `any`) filters all provisioned
+  slots to one Proton `ExitCountry`; do not add multi-select or city filters
+  unless requested.
 - DNS hard rule: LAN clients use Pi-hole only; never push Proton DNS
   (`10.2.0.1`) to clients; do not leak internal DNS names.
 - Kill-switch (VPN on) and intentional ISP bypass are separate behaviours.

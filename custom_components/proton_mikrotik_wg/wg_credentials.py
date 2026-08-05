@@ -41,6 +41,7 @@ class ProtonLogicalServer:
     load: int = 100
     score: float = 100.0
     tier: int = 0
+    exit_country: str = ""
 
 
 @dataclass(frozen=True)
@@ -106,11 +107,13 @@ def list_logical_servers(
     session: ProtonApiSession,
     *,
     max_tier: int | None = None,
+    exit_country: str | None = None,
 ) -> list[ProtonLogicalServer]:
     """Fetch online shared Proton logical servers suitable for plain WireGuard.
 
     Mirrors Proton's WireGuard UI filters: online, not Secure Core/TOR, optional
-    max account tier, and at least one instance with an X25519 public key.
+    max account tier, optional ExitCountry, and at least one instance with an
+    X25519 public key.
     """
     payload = session.api_request("/vpn/logicals", method="get")
     servers: list[ProtonLogicalServer] = []
@@ -122,6 +125,9 @@ def list_logical_servers(
             continue
         tier = int(logical.get("Tier") or 0)
         if max_tier is not None and tier > max_tier:
+            continue
+        country = str(logical.get("ExitCountry") or "").upper()
+        if exit_country and country != exit_country.upper():
             continue
         instances = [
             instance
@@ -139,9 +145,24 @@ def list_logical_servers(
                 load=int(logical.get("Load") or 100),
                 score=float(logical.get("Score") or 100.0),
                 tier=tier,
+                exit_country=country,
             )
         )
     return servers
+
+
+def list_exit_countries(
+    session: ProtonApiSession,
+    *,
+    max_tier: int | None = None,
+) -> list[str]:
+    """Return sorted unique ExitCountry codes from usable WireGuard logicals."""
+    countries = {
+        server.exit_country
+        for server in list_logical_servers(session, max_tier=max_tier)
+        if server.exit_country
+    }
+    return sorted(countries)
 
 
 def pick_least_loaded_server(
@@ -349,6 +370,7 @@ def provision_wireguard_slots(
     count: int,
     existing: Mapping[int, WireGuardCredential] | None = None,
     slot: int | None = None,
+    exit_country: str | None = None,
 ) -> dict[int, WireGuardCredential]:
     """Provision ``count`` tunnels (or one ``slot``) on distinct Proton servers."""
     if count < 1:
@@ -359,8 +381,14 @@ def provision_wireguard_slots(
         if target < 1 or target > count:
             raise ValueError(f"slot must be between 1 and {count}, got {target}")
 
+    country = exit_country or None
+    if country and country.lower() == "any":
+        country = None
+
     max_tier = fetch_vpn_max_tier(session)
-    available = list_logical_servers(session, max_tier=max_tier)
+    available = list_logical_servers(
+        session, max_tier=max_tier, exit_country=country
+    )
 
     if slot is None:
         servers = pick_best_servers(available, count=count)

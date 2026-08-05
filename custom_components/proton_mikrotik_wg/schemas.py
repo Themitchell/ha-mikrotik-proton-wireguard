@@ -15,11 +15,13 @@ from .const import (
     CONF_TOTP,
     CONF_TUNNEL_COUNT,
     CONF_USERNAME,
+    CONF_VPN_EXIT_COUNTRY,
     DEFAULT_MIKROTIK_PORT,
     DEFAULT_MIKROTIK_USE_SSL,
     DEFAULT_TUNNEL_COUNT,
     MAX_TUNNEL_COUNT,
     MIN_TUNNEL_COUNT,
+    VPN_EXIT_COUNTRY_ANY,
 )
 
 PROTON_CREDENTIALS_SCHEMA = vol.Schema(
@@ -42,9 +44,23 @@ PROTON_TWO_FACTOR_SCHEMA = vol.Schema(
 )
 
 
-def mikrotik_options_schema(defaults: dict | None = None) -> vol.Schema:
+def mikrotik_options_schema(
+    defaults: dict | None = None,
+    *,
+    exit_countries: list[str] | None = None,
+) -> vol.Schema:
     """Build the MikroTik options form, optionally prefilled from existing options."""
     current = defaults or {}
+    countries = list(exit_countries or [])
+    saved = str(current.get(CONF_VPN_EXIT_COUNTRY, VPN_EXIT_COUNTRY_ANY) or VPN_EXIT_COUNTRY_ANY)
+    choices = [VPN_EXIT_COUNTRY_ANY]
+    for code in countries:
+        upper = code.upper()
+        if upper and upper not in choices:
+            choices.append(upper)
+    if saved not in choices:
+        choices.append(saved.upper() if saved != VPN_EXIT_COUNTRY_ANY else VPN_EXIT_COUNTRY_ANY)
+
     return vol.Schema(
         {
             vol.Required(
@@ -70,6 +86,12 @@ def mikrotik_options_schema(defaults: dict | None = None) -> vol.Schema:
             vol.Required(
                 CONF_TUNNEL_COUNT,
                 default=current.get(CONF_TUNNEL_COUNT, DEFAULT_TUNNEL_COUNT),
-            ): vol.All(vol.Coerce(int), vol.Range(min=MIN_TUNNEL_COUNT, max=MAX_TUNNEL_COUNT)),
+            ): vol.All(
+                vol.Coerce(int), vol.Range(min=MIN_TUNNEL_COUNT, max=MAX_TUNNEL_COUNT)
+            ),
+            vol.Required(
+                CONF_VPN_EXIT_COUNTRY,
+                default=saved if saved in choices else VPN_EXIT_COUNTRY_ANY,
+            ): vol.In(choices),
         }
     )

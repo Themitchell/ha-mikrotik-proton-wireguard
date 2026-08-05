@@ -17,9 +17,11 @@ from .const import (
     CONF_MIKROTIK_USE_SSL,
     CONF_MIKROTIK_WAN_GATEWAY,
     CONF_TUNNEL_COUNT,
+    CONF_VPN_EXIT_COUNTRY,
     DEFAULT_MIKROTIK_PORT,
     DEFAULT_MIKROTIK_USE_SSL,
     DEFAULT_TUNNEL_COUNT,
+    VPN_EXIT_COUNTRY_ANY,
 )
 from .mikrotik_client import open_mikrotik_api
 from .mikrotik_wg import (
@@ -70,6 +72,15 @@ class ProtonSessionManager:
     def tunnel_count(self) -> int:
         """Configured simultaneous tunnel count (1–20)."""
         return int(self.entry.options.get(CONF_TUNNEL_COUNT, DEFAULT_TUNNEL_COUNT))
+
+    def vpn_exit_country(self) -> str | None:
+        """Configured Proton ExitCountry, or None for any region."""
+        value = str(
+            self.entry.options.get(CONF_VPN_EXIT_COUNTRY, VPN_EXIT_COUNTRY_ANY)
+        ).strip()
+        if not value or value.lower() == VPN_EXIT_COUNTRY_ANY:
+            return None
+        return value.upper()
 
     async def async_setup(self) -> None:
         """Refresh once on startup and schedule periodic refresh."""
@@ -152,6 +163,7 @@ class ProtonSessionManager:
                 count=count,
                 existing=existing,
                 slot=slot,
+                exit_country=self.vpn_exit_country(),
             )
         )
         merged = dict(self.entry.data)
