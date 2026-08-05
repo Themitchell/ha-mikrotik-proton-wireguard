@@ -7,6 +7,10 @@ from typing import Any, Protocol
 
 DEFAULT_WG_PORT = 51820
 DEFAULT_CLIENT_ADDRESS = "10.2.0.2/32"
+# Proton logical Features bits: Secure Core=1, TOR=2 (same as Proton WebClients).
+FEATURE_SECURE_CORE = 1
+FEATURE_TOR = 2
+FEATURE_SECURE_CORE_OR_TOR = FEATURE_SECURE_CORE | FEATURE_TOR
 
 
 class ProtonApiSession(Protocol):
@@ -30,6 +34,8 @@ class ProtonLogicalServer:
     entry_ip: str
     x25519_public_key: str
     load: int = 100
+    score: float = 100.0
+    tier: int = 0
 
 
 @dataclass(frozen=True)
@@ -71,14 +77,32 @@ def generate_wireguard_keypair() -> WireGuardKeyPair:
     )
 
 
-def list_logical_servers(session: ProtonApiSession) -> list[ProtonLogicalServer]:
-    """Fetch online shared Proton logical servers with at least one instance."""
+def list_logical_servers(
+    session: ProtonApiSession,
+    *,
+    max_tier: int | None = None,
+) -> list[ProtonLogicalServer]:
+    """Fetch online shared Proton logical servers suitable for plain WireGuard.
+
+    Mirrors Proton's WireGuard UI filters: online, not Secure Core/TOR, optional
+    max account tier, and at least one instance with an X25519 public key.
+    """
     payload = session.api_request("/vpn/logicals", method="get")
     servers: list[ProtonLogicalServer] = []
     for logical in payload.get("LogicalServers") or []:
         if logical.get("Status") != 1:
             continue
-        instances = logical.get("Servers") or []
+        features = int(logical.get("Features") or 0)
+        if features & FEATURE_SECURE_CORE_OR_TOR:
+            continue
+        tier = int(logical.get("Tier") or 0)
+        if max_tier is not None and tier > max_tier:
+            continue
+        instances = [
+            instance
+            for instance in (logical.get("Servers") or [])
+            if instance.get("X25519PublicKey")
+        ]
         if not instances:
             continue
         instance = instances[0]
@@ -88,6 +112,8 @@ def list_logical_servers(session: ProtonApiSession) -> list[ProtonLogicalServer]
                 entry_ip=str(instance["EntryIP"]),
                 x25519_public_key=str(instance["X25519PublicKey"]),
                 load=int(logical.get("Load") or 100),
+                score=float(logical.get("Score") or 100.0),
+                tier=tier,
             )
         )
     return servers
@@ -96,10 +122,10 @@ def list_logical_servers(session: ProtonApiSession) -> list[ProtonLogicalServer]
 def pick_least_loaded_server(
     servers: list[ProtonLogicalServer],
 ) -> ProtonLogicalServer:
-    """Return the online server with the lowest reported load."""
+    """Return the online server with the lowest Proton Score (best first)."""
     if not servers:
         raise ValueError("no Proton servers available")
-    return min(servers, key=lambda server: server.load)
+    return min(servers, key=lambda server: server.score)
 
 
 def create_wireguard_credential(
@@ -141,18 +167,29 @@ def create_wireguard_credential(
     )
 
 
+def fetch_vpn_max_tier(session: ProtonApiSession) -> int:
+    """Return the account MaxTier from Proton /vpn (0 = free)."""
+    payload = session.api_request("/vpn", method="get")
+    vpn = payload.get("VPN") or {}
+    return int(vpn.get("MaxTier") or 0)
+
+
 def provision_wireguard_credential(
     session: ProtonApiSession,
     *,
     device_name: str,
     server: ProtonLogicalServer | None = None,
 ) -> WireGuardCredential:
-    """Generate keys and register a certificate for the least-loaded server."""
-    chosen = server or pick_least_loaded_server(list_logical_servers(session))
+    """Generate keys and register a certificate for the best allowed server."""
+    if server is None:
+        max_tier = fetch_vpn_max_tier(session)
+        server = pick_least_loaded_server(
+            list_logical_servers(session, max_tier=max_tier)
+        )
     keys = generate_wireguard_keypair()
     return create_wireguard_credential(
         session,
-        server=chosen,
+        server=server,
         keys=keys,
         device_name=device_name,
     )

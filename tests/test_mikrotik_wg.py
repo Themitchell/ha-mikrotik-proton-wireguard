@@ -108,6 +108,7 @@ def test_apply_tunnel_only_creates_iface_peer_address_and_endpoint_route():
     addrs = api.path("ip", "address").select(interface=DEFAULT_WG_INTERFACE)
     assert len(addrs) == 1
     assert addrs[0]["address"] == "10.2.0.2/32"
+    assert addrs[0]["network"] == "10.2.0.1"
 
     routes = api.path("ip", "route").select(comment=ENDPOINT_ROUTE_COMMENT)
     assert len(routes) == 1
@@ -209,7 +210,7 @@ def test_enable_egress_adds_default_route_masq_and_raises_zen_distance():
     routes = api.path("ip", "route").select(comment=EGRESS_ROUTE_COMMENT)
     assert len(routes) == 1
     assert routes[0]["dst-address"] == "0.0.0.0/0"
-    assert routes[0]["gateway"] == DEFAULT_WG_INTERFACE
+    assert routes[0]["gateway"] == "10.2.0.1"
     assert routes[0]["distance"] == "1"
 
     nat = api.path("ip", "firewall", "nat").select(comment=EGRESS_MASQ_COMMENT)
@@ -217,6 +218,11 @@ def test_enable_egress_adds_default_route_masq_and_raises_zen_distance():
     assert nat[0]["chain"] == "srcnat"
     assert nat[0]["action"] == "masquerade"
     assert nat[0]["out-interface"] == DEFAULT_WG_INTERFACE
+
+    wan_members = api.path("interface", "list", "member").select(
+        list="WAN", interface=DEFAULT_WG_INTERFACE
+    )
+    assert len(wan_members) == 1
 
     pppoe = api.path("interface", "pppoe-client").select(name="zen")
     assert pppoe[0]["default-route-distance"] == "2"
@@ -231,6 +237,12 @@ def test_disable_egress_removes_route_masq_and_restores_zen_distance():
     assert is_egress_enabled(api) is False
     assert api.path("ip", "route").select(comment=EGRESS_ROUTE_COMMENT) == []
     assert api.path("ip", "firewall", "nat").select(comment=EGRESS_MASQ_COMMENT) == []
+    assert (
+        api.path("interface", "list", "member").select(
+            list="WAN", interface=DEFAULT_WG_INTERFACE, comment="proton-wg-wan"
+        )
+        == []
+    )
     assert (
         api.path("interface", "pppoe-client").select(name="zen")[0][
             "default-route-distance"
