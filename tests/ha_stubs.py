@@ -214,6 +214,63 @@ def install_homeassistant_stubs() -> None:
     switch_mod.SwitchEntity = SwitchEntity
     sys.modules["homeassistant.components"] = components
     sys.modules["homeassistant.components.switch"] = switch_mod
+
+    sensor_mod = ModuleType("homeassistant.components.sensor")
+
+    class SensorEntity:
+        """Minimal SensorEntity stub."""
+
+        _attr_name: str | None = None
+        _attr_unique_id: str | None = None
+        _attr_native_value: Any = None
+        _attr_extra_state_attributes: dict[str, Any] | None = None
+        _attr_has_entity_name: bool = False
+        _attr_entity_category: Any = None
+        _attr_available: bool = True
+        hass: Any = None
+        _writes: int = 0
+
+        @property
+        def name(self) -> str | None:
+            return self._attr_name
+
+        @property
+        def unique_id(self) -> str | None:
+            return self._attr_unique_id
+
+        @property
+        def native_value(self) -> Any:
+            return self._attr_native_value
+
+        @property
+        def extra_state_attributes(self) -> dict[str, Any] | None:
+            return self._attr_extra_state_attributes
+
+        @property
+        def available(self) -> bool:
+            return self._attr_available
+
+        @property
+        def entity_category(self) -> Any:
+            return self._attr_entity_category
+
+        def async_write_ha_state(self) -> None:
+            self._writes += 1
+
+    sensor_mod.SensorEntity = SensorEntity
+    sys.modules["homeassistant.components.sensor"] = sensor_mod
+    components.sensor = sensor_mod  # type: ignore[attr-defined]
+
+    entity_helpers = ModuleType("homeassistant.helpers.entity")
+
+    class EntityCategory:
+        DIAGNOSTIC = "diagnostic"
+        CONFIG = "config"
+
+    entity_helpers.EntityCategory = EntityCategory
+    sys.modules["homeassistant.helpers.entity"] = entity_helpers
+    helpers.entity = entity_helpers  # type: ignore[attr-defined]
+
     ha.components = components  # type: ignore[attr-defined]
     components.switch = switch_mod  # type: ignore[attr-defined]
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from time import time
 from typing import Any, Mapping, Protocol
 
 _LOGGER = logging.getLogger(__name__)
@@ -67,6 +68,8 @@ class WireGuardCredential:
     client_address: str
     expiration_time: int
     dns: str | None = None
+    server_name: str = ""
+    provisioned_at: int = 0
 
 
 def generate_wireguard_keypair() -> WireGuardKeyPair:
@@ -240,6 +243,8 @@ def create_wireguard_credential(
         client_address=DEFAULT_CLIENT_ADDRESS,
         expiration_time=int(response["ExpirationTime"]),
         dns=None,
+        server_name=server.name,
+        provisioned_at=int(time()),
     )
 
 
