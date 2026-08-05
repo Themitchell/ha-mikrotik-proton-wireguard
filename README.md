@@ -24,9 +24,6 @@ tests/
 4. Enter Proton account email and password (login is verified).
 5. If 2FA is enabled, enter the TOTP code.
 
-HACS needs a GitHub **Release** with a semver tag (e.g. `0.2.0`);
-installing from a bare commit SHA will fail.
-
 ### Manual
 
 1. Copy `custom_components/proton_mikrotik_wg` to HA `/config/custom_components/`.
@@ -73,12 +70,14 @@ Developer tools → **Actions** → `proton_mikrotik_wg.apply_wireguard`
 This creates or updates:
 
 - `/interface/wireguard` `wg-proton` + peer
-- `/ip/address` `10.2.0.2/32` on `wg-proton`
+- `/ip/address` `10.2.0.2/32` on `wg-proton` with `network=10.2.0.1`
 - `/ip/route` endpoint `/32` via WAN gateway (comment `proton-wg-endpoint`)
 
-It does **not** change default LAN egress, NAT, kill-switch, or DNS. Do not
-push Proton DNS `10.2.0.1` to clients. The inbound remote-access WireGuard
-interface (`wireguard`) is left alone.
+`provision_wireguard` picks a server like Proton’s UI (account `MaxTier`,
+excludes Secure Core/TOR, lowest `Score`). It does **not** change default LAN
+egress, NAT, kill-switch, or DNS. Do not push Proton DNS `10.2.0.1` to
+clients. The inbound remote-access WireGuard interface (`wireguard`) is left
+alone.
 
 ### VPN egress switch
 
@@ -86,8 +85,8 @@ Entity: **Proton VPN egress** (`switch.proton_vpn_egress`).
 
 | State | Effect on MikroTik |
 |-------|--------------------|
-| On | Default `0.0.0.0/0` via `wg-proton` (comment `proton-wg-egress`), masquerade out `wg-proton` (`proton-wg-masq`), WAN `default-route-distance=2` |
-| Off | Removes those routes/NAT; restores WAN `default-route-distance=1` (normal ISP) |
+| On | Adds `wg-proton` to interface list `WAN` if needed, default `0.0.0.0/0` via `10.2.0.1` (comment `proton-wg-egress`), masquerade out `wg-proton` (`proton-wg-masq`), WAN `default-route-distance=2` |
+| Off | Removes those routes/NAT and our WAN-list member; restores WAN `default-route-distance=1` (normal ISP) |
 
 There is **no kill-switch**: when the VPN is off or down, traffic uses the ISP.
 Desired on/off state is stored in options and re-applied after HA restarts.

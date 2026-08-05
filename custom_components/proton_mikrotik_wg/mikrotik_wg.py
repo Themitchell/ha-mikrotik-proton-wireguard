@@ -21,7 +21,10 @@ from .wg_credentials import WireGuardCredential
 ENDPOINT_ROUTE_COMMENT = "proton-wg-endpoint"
 EGRESS_ROUTE_COMMENT = "proton-wg-egress"
 EGRESS_MASQ_COMMENT = "proton-wg-masq"
+WAN_LIST_COMMENT = "proton-wg-wan"
 DEFAULT_KEEPALIVE = "25s"
+PROTON_WG_GATEWAY = "10.2.0.1"
+WAN_INTERFACE_LIST = "WAN"
 
 _REQUIRED_WG_FIELDS = (
     CONF_WG_DEVICE_NAME,
@@ -159,6 +162,30 @@ def is_egress_enabled(client: RouterOsClient) -> bool:
     return bool(client.path("ip", "route").select(comment=EGRESS_ROUTE_COMMENT))
 
 
+def _ensure_wan_list_member(
+    client: RouterOsClient, *, wg_interface: str
+) -> None:
+    members = client.path("interface", "list", "member")
+    existing = members.select(list=WAN_INTERFACE_LIST, interface=wg_interface)
+    if existing:
+        return
+    members.add(
+        list=WAN_INTERFACE_LIST,
+        interface=wg_interface,
+        comment=WAN_LIST_COMMENT,
+    )
+
+
+def _remove_wan_list_member(
+    client: RouterOsClient, *, wg_interface: str
+) -> None:
+    members = client.path("interface", "list", "member")
+    for row in members.select(
+        list=WAN_INTERFACE_LIST, interface=wg_interface, comment=WAN_LIST_COMMENT
+    ):
+        members.remove(row[".id"])
+
+
 def enable_egress(
     client: RouterOsClient,
     *,
@@ -166,12 +193,13 @@ def enable_egress(
     wg_interface: str = DEFAULT_WG_INTERFACE,
 ) -> None:
     """Prefer whole-home egress via WireGuard; keep ISP as higher-distance backup."""
+    _ensure_wan_list_member(client, wg_interface=wg_interface)
     _upsert(
         client.path("ip", "route"),
         match={"comment": EGRESS_ROUTE_COMMENT},
         values={
             "dst-address": "0.0.0.0/0",
-            "gateway": wg_interface,
+            "gateway": PROTON_WG_GATEWAY,
             "distance": "1",
         },
     )
@@ -194,9 +222,9 @@ def disable_egress(
     wg_interface: str = DEFAULT_WG_INTERFACE,
 ) -> None:
     """Remove VPN default route/NAT and restore ISP as primary default."""
-    del wg_interface  # interface name only needed for enable; kept for API symmetry
     _remove_by_comment(client.path("ip", "route"), EGRESS_ROUTE_COMMENT)
     _remove_by_comment(client.path("ip", "firewall", "nat"), EGRESS_MASQ_COMMENT)
+    _remove_wan_list_member(client, wg_interface=wg_interface)
     _set_pppoe_default_route_distance(client, wan_interface, "1")
 
 
@@ -240,7 +268,10 @@ def apply_tunnel_only(
     _upsert(
         addresses,
         match={"interface": interface_name},
-        values={"address": credential.client_address},
+        values={
+            "address": credential.client_address,
+            "network": PROTON_WG_GATEWAY,
+        },
     )
 
     routes = client.path("ip", "route")
