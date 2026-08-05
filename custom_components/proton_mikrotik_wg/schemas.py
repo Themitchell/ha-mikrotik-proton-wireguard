@@ -16,12 +16,15 @@ from .const import (
     CONF_TUNNEL_COUNT,
     CONF_USERNAME,
     CONF_VPN_EXIT_COUNTRY,
+    CONF_WG_REFRESH_INTERVAL,
     DEFAULT_MIKROTIK_PORT,
     DEFAULT_MIKROTIK_USE_SSL,
     DEFAULT_TUNNEL_COUNT,
+    DEFAULT_WG_REFRESH_INTERVAL,
     MAX_TUNNEL_COUNT,
     MIN_TUNNEL_COUNT,
     VPN_EXIT_COUNTRY_ANY,
+    WG_REFRESH_INTERVALS,
 )
 
 PROTON_CREDENTIALS_SCHEMA = vol.Schema(
@@ -93,5 +96,11 @@ def mikrotik_options_schema(
                 CONF_VPN_EXIT_COUNTRY,
                 default=saved if saved in choices else VPN_EXIT_COUNTRY_ANY,
             ): vol.In(choices),
+            vol.Required(
+                CONF_WG_REFRESH_INTERVAL,
+                default=current.get(
+                    CONF_WG_REFRESH_INTERVAL, DEFAULT_WG_REFRESH_INTERVAL
+                ),
+            ): vol.In(list(WG_REFRESH_INTERVALS)),
         }
     )

@@ -20,8 +20,11 @@ from proton_mikrotik_wg.const import (
     CONF_MIKROTIK_WAN_GATEWAY,
     CONF_TUNNEL_COUNT,
     CONF_VPN_EXIT_COUNTRY,
+    CONF_WG_REFRESH_INTERVAL,
     DOMAIN,
     VPN_EXIT_COUNTRY_ANY,
+    WG_REFRESH_DAILY,
+    DEFAULT_WG_REFRESH_INTERVAL,
 )
 from proton_mikrotik_wg.mikrotik_client import (
     CannotConnectMikroTik,
@@ -73,6 +76,7 @@ async def test_options_step_saves_on_successful_connect(options_flow):
                 CONF_MIKROTIK_WAN_GATEWAY: "192.0.2.1",
                 CONF_TUNNEL_COUNT: 5,
                 CONF_VPN_EXIT_COUNTRY: "GB",
+                CONF_WG_REFRESH_INTERVAL: WG_REFRESH_DAILY,
             }
         )
     assert result["type"] == "create_entry"
@@ -80,7 +84,36 @@ async def test_options_step_saves_on_successful_connect(options_flow):
     assert result["data"][CONF_MIKROTIK_WAN_GATEWAY] == "192.0.2.1"
     assert result["data"][CONF_TUNNEL_COUNT] == 5
     assert result["data"][CONF_VPN_EXIT_COUNTRY] == "GB"
+    assert result["data"][CONF_WG_REFRESH_INTERVAL] == WG_REFRESH_DAILY
     check.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_options_step_preserves_refresh_stamp_and_defaults_cadence(options_flow):
+    from proton_mikrotik_wg.const import CONF_EGRESS_ENABLED, CONF_WG_REFRESH_LAST_AT
+
+    options_flow._config_entry.options = {
+        CONF_WG_REFRESH_LAST_AT: 42,
+        CONF_EGRESS_ENABLED: True,
+    }
+    with (
+        patch("proton_mikrotik_wg.config_flow.check_mikrotik_connection"),
+        patch.object(options_flow, "_async_exit_countries", return_value=[]),
+    ):
+        result = await options_flow.async_step_init(
+            {
+                CONF_MIKROTIK_HOST: "10.0.20.1",
+                CONF_MIKROTIK_USERNAME: "admin",
+                CONF_MIKROTIK_PASSWORD: "secret",
+                CONF_MIKROTIK_PORT: 8729,
+                CONF_MIKROTIK_USE_SSL: True,
+                CONF_MIKROTIK_WAN_GATEWAY: "zen",
+                CONF_TUNNEL_COUNT: 3,
+            }
+        )
+    assert result["data"][CONF_WG_REFRESH_INTERVAL] == DEFAULT_WG_REFRESH_INTERVAL
+    assert result["data"][CONF_WG_REFRESH_LAST_AT] == 42
+    assert result["data"][CONF_EGRESS_ENABLED] is True
 
 
 @pytest.mark.asyncio

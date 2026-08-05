@@ -222,7 +222,12 @@ async def test_async_provision_drops_legacy_flat_keys(hass):
         return_value=slots,
     ):
         await manager.async_provision_wireguard()
-    updated = hass.config_entries.async_update_entry.call_args.kwargs["data"]
+    data_calls = [
+        c.kwargs["data"]
+        for c in hass.config_entries.async_update_entry.call_args_list
+        if "data" in c.kwargs
+    ]
+    updated = data_calls[-1]
     assert "wg_serial_number" not in updated
     assert "wg_slots" in updated
 
