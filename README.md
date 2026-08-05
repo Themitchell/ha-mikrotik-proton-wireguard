@@ -52,11 +52,18 @@ Settings → Devices & services → Proton MikroTik WireGuard → **Configure**:
 | Use SSL | on |
 | WAN gateway | ISP gateway **name or IP** (e.g. `zen` for PPPoE) |
 | Tunnel count | `3` (1–20 simultaneous Proton tunnels) |
+| VPN exit country | `Any` (default) or one ISO code from Proton’s live server list |
 
 Connectivity is checked with `/system/resource` over api-ssl. Ensure the HA
 host is allowed to reach the API port (input accept above any “drop non-admin”
 rules). Proton accounts often cap WireGuard configs (~10); provision will
 surface Proton’s error if you exceed the account limit.
+
+**Exit country** limits every provisioned slot to servers in that Proton
+`ExitCountry`. Choose **Any** for the previous behaviour (best Score worldwide).
+The dropdown is built from usable online servers for your account tier; if the
+list cannot be fetched, the form still offers Any plus any previously saved
+country.
 
 ### Provision WireGuard certificates
 
@@ -66,8 +73,10 @@ Keys match Proton’s account UI: raw Ed25519 public key for the certificate
 API, X25519 for the MikroTik WireGuard peer.
 
 - Omitting **slot** provisions **all** tunnels (1…`tunnel_count`) on **distinct**
-  Proton servers (best Score, no Secure Core/TOR).
-- Optional **slot** (1–20) reprovisions one tunnel only.
+  Proton servers (best Score, no Secure Core/TOR), optionally restricted to the
+  configured exit country.
+- Optional **slot** (1–20) reprovisions one tunnel only (same country filter).
+- Provision fails if fewer than `tunnel_count` distinct servers match the filter.
 - Device labels: `ha-wg-proton-{slot}-YYYYMMDD-HHMMSS` (UTC).
 - Best-effort delete of older `ha-wg-proton*` certs, keeping current slot
   serials. Non-HA configs are left alone.
@@ -102,8 +111,8 @@ Entity: **Proton VPN egress** (`switch.proton_vpn_egress`).
 There is **no kill-switch**: when the VPN is off or down, traffic uses the ISP.
 Desired on/off state is stored in options and re-applied after HA restarts.
 
-Typical order: configure MikroTik (set tunnel count) → provision →
-`apply_wireguard` → toggle egress on.
+Typical order: configure MikroTik (tunnel count + optional exit country) →
+provision → `apply_wireguard` → toggle egress on.
 
 ## Tests
 

@@ -165,7 +165,38 @@ async def test_async_provision_wireguard_stores_slots(hass, entry):
 
 
 @pytest.mark.asyncio
-async def test_async_provision_wireguard_one_slot(hass, entry):
+async def test_async_provision_wireguard_passes_exit_country(hass, entry):
+    from unittest.mock import patch
+
+    from proton_mikrotik_wg.const import CONF_VPN_EXIT_COUNTRY
+    from proton_mikrotik_wg.wg_credentials import WireGuardCredential
+
+    entry.options = {CONF_VPN_EXIT_COUNTRY: "GB"}
+    client = MagicMock()
+    client.data = _session()
+    client.live_session.return_value = MagicMock()
+    hass.async_add_executor_job = AsyncMock(side_effect=lambda fn: fn())
+    manager = ProtonSessionManager(hass, entry, client=client)
+    slots = {
+        1: WireGuardCredential(
+            device_name="ha-wg-proton-1-stamp",
+            serial_number="sn-1",
+            client_private_key="sk==",
+            client_public_key="pk==",
+            server_public_key="spk==",
+            endpoint_host="1.2.3.4",
+            endpoint_port=51820,
+            client_address="10.2.0.2/32",
+            expiration_time=1,
+            dns=None,
+        )
+    }
+    with patch(
+        "proton_mikrotik_wg.session_manager.provision_wireguard_slots",
+        return_value=slots,
+    ) as provision:
+        await manager.async_provision_wireguard()
+    assert provision.call_args.kwargs["exit_country"] == "GB"
     from unittest.mock import patch
 
     from proton_mikrotik_wg.wg_credentials import WireGuardCredential

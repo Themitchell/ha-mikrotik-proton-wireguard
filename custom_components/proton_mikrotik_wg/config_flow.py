@@ -19,8 +19,10 @@ from .const import (
     CONF_TOTP,
     CONF_TUNNEL_COUNT,
     CONF_USERNAME,
+    CONF_VPN_EXIT_COUNTRY,
     DEFAULT_TUNNEL_COUNT,
     DOMAIN,
+    VPN_EXIT_COUNTRY_ANY,
 )
 from .mikrotik_client import (
     CannotConnectMikroTik,
@@ -42,6 +44,7 @@ from .schemas import (
     mikrotik_options_schema,
 )
 from .session_store import entry_data_from_session
+from .wg_credentials import list_exit_countries
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -194,11 +197,27 @@ class ProtonMikroTikWgConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 class ProtonMikroTikWgOptionsFlow(config_entries.OptionsFlow):
     """Configure MikroTik RouterOS API connection details."""
 
+    async def _async_exit_countries(self) -> list[str]:
+        """Fetch usable ExitCountry codes from Proton; empty on failure."""
+        managers = self.hass.data.get(DOMAIN, {})
+        manager = managers.get(self.config_entry.entry_id)
+        if manager is None:
+            return []
+        try:
+            session = manager.client.live_session()
+            return await self.hass.async_add_executor_job(
+                lambda: list_exit_countries(session)
+            )
+        except Exception:  # noqa: BLE001 — fall back to Any + saved value
+            _LOGGER.warning("Could not fetch Proton exit countries for options form")
+            return []
+
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
         """Collect and verify MikroTik api-ssl credentials."""
         errors: dict[str, str] = {}
+        countries = await self._async_exit_countries()
 
         if user_input is not None:
             try:
@@ -220,6 +239,9 @@ class ProtonMikroTikWgOptionsFlow(config_entries.OptionsFlow):
                 _LOGGER.exception("Unexpected MikroTik options failure")
                 errors["base"] = "unknown"
             else:
+                country = str(
+                    user_input.get(CONF_VPN_EXIT_COUNTRY, VPN_EXIT_COUNTRY_ANY)
+                )
                 return self.async_create_entry(
                     title="MikroTik",
                     data={
@@ -234,11 +256,15 @@ class ProtonMikroTikWgOptionsFlow(config_entries.OptionsFlow):
                         CONF_TUNNEL_COUNT: int(
                             user_input.get(CONF_TUNNEL_COUNT, DEFAULT_TUNNEL_COUNT)
                         ),
+                        CONF_VPN_EXIT_COUNTRY: country,
                     },
                 )
 
         return self.async_show_form(
             step_id="init",
-            data_schema=mikrotik_options_schema(dict(self.config_entry.options)),
+            data_schema=mikrotik_options_schema(
+                dict(self.config_entry.options),
+                exit_countries=countries,
+            ),
             errors=errors,
         )
