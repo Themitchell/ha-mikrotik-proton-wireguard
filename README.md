@@ -1,8 +1,8 @@
 # Proton MikroTik WireGuard
 
 Home Assistant **custom integration** that logs into Proton VPN, provisions one
-WireGuard certificate, and can push it onto a single MikroTik `wg-proton`
-interface as a **tunnel-only** config (no whole-home egress yet).
+WireGuard certificate, applies it to a MikroTik `wg-proton` interface, and
+exposes a switch to send whole-home traffic out through Proton VPN.
 
 ## Layout
 
@@ -24,7 +24,7 @@ tests/
 4. Enter Proton account email and password (login is verified).
 5. If 2FA is enabled, enter the TOTP code.
 
-HACS needs a GitHub **Release** with a semver tag (e.g. `0.1.9`);
+HACS needs a GitHub **Release** with a semver tag (e.g. `0.2.0`);
 installing from a bare commit SHA will fail.
 
 ### Manual
@@ -60,9 +60,11 @@ Settings → Devices & services → Proton MikroTik WireGuard → **Configure**:
 | Username / password | RouterOS API user |
 | Port | `8729` (api-ssl) |
 | Use SSL | on |
-| WAN gateway | ISP gateway IP (for endpoint `/32` pin) |
+| WAN gateway | ISP gateway **name or IP** (e.g. `zen` for PPPoE) |
 
-Connectivity is checked with `/system/resource` over api-ssl.
+Connectivity is checked with `/system/resource` over api-ssl. Ensure the HA
+host is allowed to reach the API port (input accept above any “drop non-admin”
+rules).
 
 ### Apply tunnel-only to the router
 
@@ -77,6 +79,21 @@ This creates or updates:
 It does **not** change default LAN egress, NAT, kill-switch, or DNS. Do not
 push Proton DNS `10.2.0.1` to clients. The inbound remote-access WireGuard
 interface (`wireguard`) is left alone.
+
+### VPN egress switch
+
+Entity: **Proton VPN egress** (`switch.proton_vpn_egress`).
+
+| State | Effect on MikroTik |
+|-------|--------------------|
+| On | Default `0.0.0.0/0` via `wg-proton` (comment `proton-wg-egress`), masquerade out `wg-proton` (`proton-wg-masq`), WAN `default-route-distance=2` |
+| Off | Removes those routes/NAT; restores WAN `default-route-distance=1` (normal ISP) |
+
+There is **no kill-switch**: when the VPN is off or down, traffic uses the ISP.
+Desired on/off state is stored in options and re-applied after HA restarts.
+
+Typical order: provision → configure MikroTik → `apply_wireguard` → toggle the
+egress switch on.
 
 ## Tests
 
