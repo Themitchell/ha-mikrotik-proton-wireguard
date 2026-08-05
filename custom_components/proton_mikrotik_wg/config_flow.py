@@ -9,6 +9,7 @@ from homeassistant import config_entries
 from homeassistant.data_entry_flow import FlowResult
 
 from .const import (
+    CONF_EGRESS_ENABLED,
     CONF_MIKROTIK_HOST,
     CONF_MIKROTIK_PASSWORD,
     CONF_MIKROTIK_PORT,
@@ -20,7 +21,10 @@ from .const import (
     CONF_TUNNEL_COUNT,
     CONF_USERNAME,
     CONF_VPN_EXIT_COUNTRY,
+    CONF_WG_REFRESH_INTERVAL,
+    CONF_WG_REFRESH_LAST_AT,
     DEFAULT_TUNNEL_COUNT,
+    DEFAULT_WG_REFRESH_INTERVAL,
     DOMAIN,
     VPN_EXIT_COUNTRY_ANY,
 )
@@ -242,22 +246,35 @@ class ProtonMikroTikWgOptionsFlow(config_entries.OptionsFlow):
                 country = str(
                     user_input.get(CONF_VPN_EXIT_COUNTRY, VPN_EXIT_COUNTRY_ANY)
                 )
+                cadence = str(
+                    user_input.get(
+                        CONF_WG_REFRESH_INTERVAL, DEFAULT_WG_REFRESH_INTERVAL
+                    )
+                )
+                # Preserve runtime options not shown on this form.
+                previous = dict(self.config_entry.options)
+                data = {
+                    CONF_MIKROTIK_HOST: user_input[CONF_MIKROTIK_HOST],
+                    CONF_MIKROTIK_USERNAME: user_input[CONF_MIKROTIK_USERNAME],
+                    CONF_MIKROTIK_PASSWORD: user_input[CONF_MIKROTIK_PASSWORD],
+                    CONF_MIKROTIK_PORT: int(user_input[CONF_MIKROTIK_PORT]),
+                    CONF_MIKROTIK_USE_SSL: bool(user_input[CONF_MIKROTIK_USE_SSL]),
+                    CONF_MIKROTIK_WAN_GATEWAY: user_input[
+                        CONF_MIKROTIK_WAN_GATEWAY
+                    ],
+                    CONF_TUNNEL_COUNT: int(
+                        user_input.get(CONF_TUNNEL_COUNT, DEFAULT_TUNNEL_COUNT)
+                    ),
+                    CONF_VPN_EXIT_COUNTRY: country,
+                    CONF_WG_REFRESH_INTERVAL: cadence,
+                }
+                if CONF_WG_REFRESH_LAST_AT in previous:
+                    data[CONF_WG_REFRESH_LAST_AT] = previous[CONF_WG_REFRESH_LAST_AT]
+                if CONF_EGRESS_ENABLED in previous:
+                    data[CONF_EGRESS_ENABLED] = previous[CONF_EGRESS_ENABLED]
                 return self.async_create_entry(
                     title="MikroTik",
-                    data={
-                        CONF_MIKROTIK_HOST: user_input[CONF_MIKROTIK_HOST],
-                        CONF_MIKROTIK_USERNAME: user_input[CONF_MIKROTIK_USERNAME],
-                        CONF_MIKROTIK_PASSWORD: user_input[CONF_MIKROTIK_PASSWORD],
-                        CONF_MIKROTIK_PORT: int(user_input[CONF_MIKROTIK_PORT]),
-                        CONF_MIKROTIK_USE_SSL: bool(user_input[CONF_MIKROTIK_USE_SSL]),
-                        CONF_MIKROTIK_WAN_GATEWAY: user_input[
-                            CONF_MIKROTIK_WAN_GATEWAY
-                        ],
-                        CONF_TUNNEL_COUNT: int(
-                            user_input.get(CONF_TUNNEL_COUNT, DEFAULT_TUNNEL_COUNT)
-                        ),
-                        CONF_VPN_EXIT_COUNTRY: country,
-                    },
+                    data=data,
                 )
 
         return self.async_show_form(

@@ -14,8 +14,11 @@ from proton_mikrotik_wg.const import (
     CONF_MIKROTIK_WAN_GATEWAY,
     CONF_TUNNEL_COUNT,
     CONF_VPN_EXIT_COUNTRY,
+    CONF_WG_REFRESH_INTERVAL,
     DEFAULT_TUNNEL_COUNT,
+    DEFAULT_WG_REFRESH_INTERVAL,
     VPN_EXIT_COUNTRY_ANY,
+    WG_REFRESH_WEEKLY,
 )
 from proton_mikrotik_wg.schemas import mikrotik_options_schema
 
@@ -37,6 +40,19 @@ def test_mikrotik_options_schema_defaults_tunnel_count_and_any_country():
     parsed = mikrotik_options_schema()(_base())
     assert parsed[CONF_TUNNEL_COUNT] == DEFAULT_TUNNEL_COUNT
     assert parsed[CONF_VPN_EXIT_COUNTRY] == VPN_EXIT_COUNTRY_ANY
+    assert parsed[CONF_WG_REFRESH_INTERVAL] == DEFAULT_WG_REFRESH_INTERVAL
+
+
+def test_mikrotik_options_schema_accepts_refresh_cadence():
+    parsed = mikrotik_options_schema()(
+        _base(**{CONF_WG_REFRESH_INTERVAL: WG_REFRESH_WEEKLY})
+    )
+    assert parsed[CONF_WG_REFRESH_INTERVAL] == WG_REFRESH_WEEKLY
+
+
+def test_mikrotik_options_schema_rejects_unknown_refresh_cadence():
+    with pytest.raises(vol.Invalid):
+        mikrotik_options_schema()(_base(**{CONF_WG_REFRESH_INTERVAL: "yearly"}))
 
 
 def test_mikrotik_options_schema_accepts_fetched_exit_country():

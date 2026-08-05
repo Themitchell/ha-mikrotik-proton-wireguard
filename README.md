@@ -53,6 +53,7 @@ Settings → Devices & services → Proton MikroTik WireGuard → **Configure**:
 | WAN gateway | ISP gateway **name or IP** (e.g. `zen` for PPPoE) |
 | Tunnel count | `3` (1–20 simultaneous Proton tunnels) |
 | VPN exit country | `Any` (default) or one ISO code from Proton’s live server list |
+| Credential refresh | `monthly` (default), or `weekly` / `daily` |
 
 Connectivity is checked with `/system/resource` over api-ssl. Ensure the HA
 host is allowed to reach the API port (input accept above any “drop non-admin”
@@ -64,6 +65,11 @@ surface Proton’s error if you exceed the account limit.
 The dropdown is built from usable online servers for your account tier; if the
 list cannot be fetched, the form still offers Any plus any previously saved
 country.
+
+**Credential refresh** renews the oldest tunnel cert on a schedule (one per
+period). If Home Assistant was offline, it renews **N** oldest slots where N is
+the number of missed periods (capped at tunnel count), then applies to MikroTik
+automatically. A full manual `provision_wireguard` resets the schedule clock.
 
 ### Provision WireGuard certificates
 

@@ -20,6 +20,9 @@
 - Optional single `vpn_exit_country` (ISO code or `any`) filters all provisioned
   slots to one Proton `ExitCountry`; do not add multi-select or city filters
   unless requested.
+- Staggered credential refresh renews oldest slots on a daily/weekly/monthly
+  cadence (default monthly); catch up by missed window count then auto-apply.
+  Do not switch to calendar-month boundaries unless requested.
 - DNS hard rule: LAN clients use Pi-hole only; never push Proton DNS
   (`10.2.0.1`) to clients; do not leak internal DNS names.
 - Kill-switch (VPN on) and intentional ISP bypass are separate behaviours.

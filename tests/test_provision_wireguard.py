@@ -90,11 +90,23 @@ async def test_async_provision_wireguard_stores_slots(hass):
     provision.assert_called_once()
     assert provision.call_args.kwargs["count"] == 2
     assert provision.call_args.kwargs["slot"] is None
-    hass.config_entries.async_update_entry.assert_called_once()
-    updated = hass.config_entries.async_update_entry.call_args.kwargs["data"]
+    data_calls = [
+        c.kwargs["data"]
+        for c in hass.config_entries.async_update_entry.call_args_list
+        if "data" in c.kwargs
+    ]
+    assert len(data_calls) == 1
+    updated = data_calls[0]
     assert CONF_WG_SLOTS in updated
     assert len(updated[CONF_WG_SLOTS]) == 2
     assert updated[CONF_ACCESS_TOKEN] == "access-1"
+    options_calls = [
+        c.kwargs["options"]
+        for c in hass.config_entries.async_update_entry.call_args_list
+        if "options" in c.kwargs
+    ]
+    assert options_calls
+    assert "wg_refresh_last_at" in options_calls[-1]
 
 
 @pytest.mark.asyncio
