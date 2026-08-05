@@ -43,9 +43,12 @@ containers (no system `gpg` required). Use your Proton **account** email
 
 Developer tools → **Actions** → `proton_mikrotik_wg.provision_wireguard`
 
-Default device label: `ha-wg-proton` (custom names must start with `ha-`).
-The credential is stored on the config entry. Persistent configs also appear
-under Proton account → Downloads → WireGuard configuration (~1 year validity).
+Default device label: `ha-wg-proton-YYYYMMDD-HHMMSS` (UTC). Custom names must
+start with `ha-`. Each provision creates a **new** certificate, then best-effort
+deletes older `ha-wg-proton*` certs on the account (keeps non-HA configs). If
+Proton rejects delete (session scope), leftovers must be removed in the Proton
+account UI. The new credential is stored on the config entry. Service failures
+show the Proton/MikroTik error text instead of a generic “Unknown error”.
 
 ### Configure MikroTik (options)
 

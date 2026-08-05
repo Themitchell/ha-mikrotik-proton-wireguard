@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, NoReturn
 
 import voluptuous as vol
 
 from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.exceptions import HomeAssistantError
 
 from .const import (
     DEFAULT_WG_DEVICE_NAME,
@@ -38,11 +39,19 @@ def _manager_from_call(hass: HomeAssistant, call: ServiceCall) -> Any:
     if entry_id:
         manager = managers.get(entry_id)
         if manager is None:
-            raise ValueError(f"No Proton MikroTik WG entry id={entry_id}")
+            raise HomeAssistantError(f"No Proton MikroTik WG entry id={entry_id}")
         return manager
     if not managers:
-        raise ValueError("Proton MikroTik WG is not configured")
+        raise HomeAssistantError("Proton MikroTik WG is not configured")
     return next(iter(managers.values()))
+
+
+def _reraise_service_error(action: str, err: Exception) -> NoReturn:
+    """Log and raise a user-visible Home Assistant error."""
+    if isinstance(err, HomeAssistantError):
+        raise err
+    _LOGGER.exception("%s failed", action)
+    raise HomeAssistantError(str(err)) from err
 
 
 async def async_setup_services(hass: HomeAssistant) -> None:
@@ -52,8 +61,11 @@ async def async_setup_services(hass: HomeAssistant) -> None:
 
     async def handle_provision(call: ServiceCall) -> None:
         device_name = call.data.get("device_name", DEFAULT_WG_DEVICE_NAME)
-        manager = _manager_from_call(hass, call)
-        cred = await manager.async_provision_wireguard(device_name=device_name)
+        try:
+            manager = _manager_from_call(hass, call)
+            cred = await manager.async_provision_wireguard(device_name=device_name)
+        except Exception as err:  # noqa: BLE001 — surface any Proton/local failure
+            _reraise_service_error("provision_wireguard", err)
         _LOGGER.info(
             "Provisioned Proton WireGuard device %s (serial %s) endpoint %s:%s",
             cred.device_name,
@@ -63,8 +75,11 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         )
 
     async def handle_apply(call: ServiceCall) -> None:
-        manager = _manager_from_call(hass, call)
-        cred = await manager.async_apply_wireguard()
+        try:
+            manager = _manager_from_call(hass, call)
+            cred = await manager.async_apply_wireguard()
+        except Exception as err:  # noqa: BLE001 — surface any Proton/local failure
+            _reraise_service_error("apply_wireguard", err)
         _LOGGER.info(
             "Applied Proton WireGuard tunnel-only config for %s to MikroTik "
             "(endpoint %s:%s)",

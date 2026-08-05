@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -123,3 +123,78 @@ async def test_scheduled_refresh_invokes_refresh(hass, entry):
     manager = ProtonSessionManager(hass, entry, client=client)
     await manager._async_scheduled_refresh()
     client.refresh.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_async_provision_wireguard_suffixes_default_device_name(hass, entry):
+    from unittest.mock import patch
+
+    from proton_mikrotik_wg.wg_credentials import WireGuardCredential
+
+    client = MagicMock()
+    client.data = _session()
+    client.live_session.return_value = MagicMock()
+    cred = WireGuardCredential(
+        device_name="ignored",
+        serial_number="sn-1",
+        client_private_key="sk==",
+        client_public_key="pk==",
+        server_public_key="spk==",
+        endpoint_host="1.2.3.4",
+        endpoint_port=51820,
+        client_address="10.2.0.2/32",
+        expiration_time=1,
+        dns=None,
+    )
+    hass.async_add_executor_job = AsyncMock(side_effect=lambda fn: fn())
+    manager = ProtonSessionManager(hass, entry, client=client)
+
+    with patch(
+        "proton_mikrotik_wg.session_manager.provision_wireguard_credential",
+        return_value=cred,
+    ) as provision:
+        await manager.async_provision_wireguard()
+
+    device_name = provision.call_args.kwargs["device_name"]
+    assert device_name.startswith("ha-wg-proton-")
+    assert device_name != "ha-wg-proton"
+    # UTC stamp: ha-wg-proton-YYYYMMDD-HHMMSS
+    suffix = device_name.removeprefix("ha-wg-proton-")
+    assert len(suffix) == 15
+    assert suffix[8] == "-"
+    assert suffix.replace("-", "").isdigit()
+    _, kwargs = hass.config_entries.async_update_entry.call_args
+    assert kwargs["data"]["wg_serial_number"] == "sn-1"
+
+
+@pytest.mark.asyncio
+async def test_async_provision_wireguard_keeps_explicit_device_name(hass, entry):
+    from unittest.mock import patch
+
+    from proton_mikrotik_wg.wg_credentials import WireGuardCredential
+
+    client = MagicMock()
+    client.data = _session()
+    client.live_session.return_value = MagicMock()
+    cred = WireGuardCredential(
+        device_name="ha-custom",
+        serial_number="sn-2",
+        client_private_key="sk==",
+        client_public_key="pk==",
+        server_public_key="spk==",
+        endpoint_host="1.2.3.4",
+        endpoint_port=51820,
+        client_address="10.2.0.2/32",
+        expiration_time=1,
+        dns=None,
+    )
+    hass.async_add_executor_job = AsyncMock(side_effect=lambda fn: fn())
+    manager = ProtonSessionManager(hass, entry, client=client)
+
+    with patch(
+        "proton_mikrotik_wg.session_manager.provision_wireguard_credential",
+        return_value=cred,
+    ) as provision:
+        await manager.async_provision_wireguard(device_name="ha-custom")
+
+    assert provision.call_args.kwargs["device_name"] == "ha-custom"

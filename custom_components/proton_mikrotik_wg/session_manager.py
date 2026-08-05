@@ -141,6 +141,12 @@ class ProtonSessionManager:
         """Create one Proton WireGuard certificate labeled for Home Assistant."""
         if not device_name.startswith("ha-"):
             raise ValueError("device_name must start with 'ha-'")
+        # Proton requires unique DeviceName; stamp UTC time so re-runs are sortable.
+        if device_name == DEFAULT_WG_DEVICE_NAME:
+            from datetime import datetime, timezone
+
+            stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+            device_name = f"{DEFAULT_WG_DEVICE_NAME}-{stamp}"
 
         session = self._client.live_session()
         cred = await self.hass.async_add_executor_job(

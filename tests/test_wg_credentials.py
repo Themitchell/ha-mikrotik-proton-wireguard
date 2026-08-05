@@ -249,6 +249,188 @@ def test_pick_least_loaded_server_requires_servers():
         pick_least_loaded_server([])
 
 
+def test_fetch_vpn_max_tier_returns_none_when_vpn_call_fails():
+    from proton_mikrotik_wg.wg_credentials import fetch_vpn_max_tier
+
+    session = MagicMock()
+    session.api_request.side_effect = RuntimeError("no scope")
+    assert fetch_vpn_max_tier(session) is None
+
+
+def test_list_persistent_certificates_pages_results():
+    from proton_mikrotik_wg.wg_credentials import list_persistent_certificates
+
+    session = MagicMock()
+    session.api_request.side_effect = [
+        {
+            "Code": 1000,
+            "Certificates": [
+                {"SerialNumber": "a", "DeviceName": "ha-wg-proton-1"},
+            ]
+            + [{"SerialNumber": str(i), "DeviceName": f"x-{i}"} for i in range(49)],
+        },
+        {
+            "Code": 1000,
+            "Certificates": [
+                {"SerialNumber": "b", "DeviceName": "ha-wg-proton-2"},
+            ],
+        },
+    ]
+    certs = list_persistent_certificates(session)
+    assert len(certs) == 51
+    assert certs[-1]["SerialNumber"] == "b"
+    assert "Mode=persistent" in session.api_request.call_args_list[0].args[0]
+
+
+def test_cleanup_previous_ha_certificates_deletes_old_prefix_matches():
+    from proton_mikrotik_wg.wg_credentials import cleanup_previous_ha_certificates
+
+    session = MagicMock()
+    session.api_request.side_effect = [
+        {
+            "Code": 1000,
+            "Certificates": [
+                {"SerialNumber": "keep", "DeviceName": "ha-wg-proton-20260805-120000"},
+                {"SerialNumber": "old1", "DeviceName": "ha-wg-proton-20260801-010101"},
+                {"SerialNumber": "other", "DeviceName": "phone-config"},
+                {"SerialNumber": "bare", "DeviceName": "ha-wg-proton"},
+            ],
+        },
+        {"Code": 1000},  # delete old1
+        {"Code": 1000},  # delete bare
+    ]
+    deleted, failed = cleanup_previous_ha_certificates(
+        session, keep_serial="keep"
+    )
+    assert deleted == ["old1", "bare"]
+    assert failed == []
+    delete_calls = [
+        c
+        for c in session.api_request.call_args_list
+        if c.kwargs.get("method") == "delete"
+    ]
+    assert len(delete_calls) == 2
+    assert delete_calls[0].args[1] == {"SerialNumber": "old1"}
+
+
+def test_cleanup_previous_ha_certificates_records_delete_failures():
+    from proton_mikrotik_wg.wg_credentials import cleanup_previous_ha_certificates
+
+    session = MagicMock()
+    session.api_request.side_effect = [
+        {
+            "Code": 1000,
+            "Certificates": [
+                {"SerialNumber": "keep", "DeviceName": "ha-wg-proton-new"},
+                {"SerialNumber": "old1", "DeviceName": "ha-wg-proton-old"},
+            ],
+        },
+        RuntimeError("insufficient scope"),
+    ]
+    deleted, failed = cleanup_previous_ha_certificates(
+        session, keep_serial="keep"
+    )
+    assert deleted == []
+    assert failed == ["old1: insufficient scope"]
+
+
+def test_provision_wireguard_credential_cleans_up_previous_ha_certs():
+    from proton_mikrotik_wg.wg_credentials import provision_wireguard_credential
+
+    session = MagicMock()
+    session.api_request.side_effect = [
+        {"Code": 1000, "VPN": {"MaxTier": 2}},
+        {
+            "Code": 1000,
+            "LogicalServers": [
+                {
+                    "Name": "UK#1",
+                    "Status": 1,
+                    "Load": 5,
+                    "Features": 0,
+                    "Tier": 2,
+                    "Score": 0.8,
+                    "Servers": [
+                        {"EntryIP": "1.2.3.4", "X25519PublicKey": "server-wg-pk=="}
+                    ],
+                }
+            ],
+        },
+        {
+            "Code": 1000,
+            "SerialNumber": "sn-new",
+            "DeviceName": "ha-wg-proton-20260805-120000",
+            "ExpirationTime": 1_800_000_000,
+        },
+        {
+            "Code": 1000,
+            "Certificates": [
+                {
+                    "SerialNumber": "sn-new",
+                    "DeviceName": "ha-wg-proton-20260805-120000",
+                },
+                {
+                    "SerialNumber": "sn-old",
+                    "DeviceName": "ha-wg-proton-20260101-000000",
+                },
+            ],
+        },
+        {"Code": 1000},  # delete sn-old
+    ]
+
+    cred = provision_wireguard_credential(
+        session, device_name="ha-wg-proton-20260805-120000"
+    )
+    assert cred.serial_number == "sn-new"
+    delete_calls = [
+        c
+        for c in session.api_request.call_args_list
+        if c.kwargs.get("method") == "delete"
+    ]
+    assert len(delete_calls) == 1
+    assert delete_calls[0].args[1] == {"SerialNumber": "sn-old"}
+
+
+def test_provision_wireguard_credential_continues_when_cleanup_fails():
+    from proton_mikrotik_wg.wg_credentials import provision_wireguard_credential
+
+    session = MagicMock()
+    session.api_request.side_effect = [
+        {
+            "Code": 1000,
+            "SerialNumber": "sn-new",
+            "DeviceName": "ha-wg-proton-new",
+            "ExpirationTime": 1_800_000_000,
+        },
+        {
+            "Code": 1000,
+            "Certificates": [
+                {"SerialNumber": "sn-new", "DeviceName": "ha-wg-proton-new"},
+                {"SerialNumber": "sn-old", "DeviceName": "ha-wg-proton-old"},
+            ],
+        },
+        RuntimeError("insufficient scope"),
+    ]
+    server = ProtonLogicalServer(
+        name="UK#1",
+        entry_ip="1.2.3.4",
+        x25519_public_key="pk==",
+    )
+
+    cred = provision_wireguard_credential(
+        session, device_name="ha-wg-proton-new", server=server
+    )
+    assert cred.serial_number == "sn-new"
+
+
+def test_fetch_vpn_max_tier_returns_none_when_max_tiers_missing():
+    from proton_mikrotik_wg.wg_credentials import fetch_vpn_max_tier
+
+    session = MagicMock()
+    session.api_request.return_value = {"Code": 1000, "VPN": {}}
+    assert fetch_vpn_max_tier(session) is None
+
+
 def test_provision_wireguard_credential_generates_keys_and_registers():
     from proton_mikrotik_wg.wg_credentials import provision_wireguard_credential
 
@@ -280,6 +462,7 @@ def test_provision_wireguard_credential_generates_keys_and_registers():
             "DeviceName": "ha-wg-proton",
             "ExpirationTime": 1_800_000_000,
         },
+        {"Code": 1000, "Certificates": []},
     ]
 
     cred = provision_wireguard_credential(session, device_name="ha-wg-proton")
@@ -287,7 +470,7 @@ def test_provision_wireguard_credential_generates_keys_and_registers():
     assert cred.endpoint_host == "1.2.3.4"
     assert cred.dns is None
     assert len(cred.client_private_key) == 44
-    assert session.api_request.call_count == 3
+    assert session.api_request.call_count == 4
     assert session.api_request.call_args_list[0].args == ("/vpn",)
     assert session.api_request.call_args_list[0].kwargs == {"method": "get"}
     assert session.api_request.call_args_list[1].args == ("/vpn/logicals",)
@@ -333,6 +516,7 @@ def test_provision_wireguard_credential_uses_account_max_tier():
             "DeviceName": "ha-wg-proton",
             "ExpirationTime": 1_800_000_000,
         },
+        {"Code": 1000, "Certificates": []},
     ]
 
     cred = provision_wireguard_credential(session, device_name="ha-wg-proton")
@@ -344,12 +528,15 @@ def test_provision_wireguard_credential_uses_explicit_server():
     from proton_mikrotik_wg.wg_credentials import provision_wireguard_credential
 
     session = MagicMock()
-    session.api_request.return_value = {
-        "Code": 1000,
-        "SerialNumber": "sn-explicit",
-        "DeviceName": "ha-wg-proton",
-        "ExpirationTime": 1_800_000_000,
-    }
+    session.api_request.side_effect = [
+        {
+            "Code": 1000,
+            "SerialNumber": "sn-explicit",
+            "DeviceName": "ha-wg-proton",
+            "ExpirationTime": 1_800_000_000,
+        },
+        {"Code": 1000, "Certificates": []},
+    ]
     server = ProtonLogicalServer(
         name="UK#9",
         entry_ip="7.7.7.7",
@@ -363,5 +550,5 @@ def test_provision_wireguard_credential_uses_explicit_server():
     )
     assert cred.endpoint_host == "7.7.7.7"
     assert cred.server_public_key == "explicit=="
-    session.api_request.assert_called_once()
-    assert session.api_request.call_args.args[0] == "/vpn/v1/certificate"
+    assert session.api_request.call_count == 2
+    assert session.api_request.call_args_list[0].args[0] == "/vpn/v1/certificate"
