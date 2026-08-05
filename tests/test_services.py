@@ -67,23 +67,21 @@ async def test_setup_services_is_idempotent():
 async def test_provision_service_calls_manager():
     hass = MagicMock()
     manager = MagicMock()
-    manager.async_provision_wireguard = AsyncMock(return_value=_cred())
+    manager.async_provision_wireguard = AsyncMock(return_value={1: _cred()})
     hass.data = {DOMAIN: {"abc": manager}}
     hass.services.has_service = MagicMock(return_value=False)
     registered = _register_capture(hass)
     await async_setup_services(hass)
 
     await registered[SERVICE_PROVISION_WIREGUARD](SimpleNamespace(data={}))
-    manager.async_provision_wireguard.assert_awaited_once_with(
-        device_name=DEFAULT_WG_DEVICE_NAME
-    )
+    manager.async_provision_wireguard.assert_awaited_once_with(slot=None)
 
 
 @pytest.mark.asyncio
 async def test_apply_service_calls_manager():
     hass = MagicMock()
     manager = MagicMock()
-    manager.async_apply_wireguard = AsyncMock(return_value=_cred())
+    manager.async_apply_wireguard = AsyncMock(return_value={1: _cred()})
     hass.data = {DOMAIN: {"abc": manager}}
     hass.services.has_service = MagicMock(return_value=False)
     registered = _register_capture(hass)
@@ -109,18 +107,18 @@ async def test_provision_service_rejects_unknown_entry():
 
 
 @pytest.mark.asyncio
-async def test_provision_service_uses_explicit_entry_id():
+async def test_provision_service_uses_explicit_entry_id_and_slot():
     hass = MagicMock()
     manager = MagicMock()
-    manager.async_provision_wireguard = AsyncMock(return_value=_cred())
+    manager.async_provision_wireguard = AsyncMock(return_value={2: _cred()})
     hass.data = {DOMAIN: {"abc": manager, "other": MagicMock()}}
     hass.services.has_service = MagicMock(return_value=False)
     registered = _register_capture(hass)
     await async_setup_services(hass)
     await registered[SERVICE_PROVISION_WIREGUARD](
-        SimpleNamespace(data={"entry_id": "abc", "device_name": "ha-custom"})
+        SimpleNamespace(data={"entry_id": "abc", "slot": 2})
     )
-    manager.async_provision_wireguard.assert_awaited_once_with(device_name="ha-custom")
+    manager.async_provision_wireguard.assert_awaited_once_with(slot=2)
 
 
 @pytest.mark.asyncio

@@ -24,6 +24,12 @@ CONF_WG_ENDPOINT_HOST = "wg_endpoint_host"
 CONF_WG_ENDPOINT_PORT = "wg_endpoint_port"
 CONF_WG_CLIENT_ADDRESS = "wg_client_address"
 CONF_WG_EXPIRATION_TIME = "wg_expiration_time"
+CONF_WG_SLOTS = "wg_slots"
+CONF_TUNNEL_COUNT = "tunnel_count"
+
+MIN_TUNNEL_COUNT = 1
+MAX_TUNNEL_COUNT = 20
+DEFAULT_TUNNEL_COUNT = 3
 
 CONF_MIKROTIK_HOST = "mikrotik_host"
 CONF_MIKROTIK_USERNAME = "mikrotik_username"

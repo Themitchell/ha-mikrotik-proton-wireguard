@@ -258,6 +258,36 @@ def test_pick_least_loaded_server_requires_servers():
         pick_least_loaded_server([])
 
 
+def test_pick_best_servers_returns_n_distinct_by_score():
+    from proton_mikrotik_wg.wg_credentials import pick_best_servers
+
+    servers = [
+        ProtonLogicalServer("UK#1", "1.1.1.1", "a==", score=3.0),
+        ProtonLogicalServer("UK#2", "2.2.2.2", "b==", score=0.5),
+        ProtonLogicalServer("CH#1", "1.1.1.1", "c==", score=0.1),  # same entry IP as UK#1
+        ProtonLogicalServer("UK#3", "3.3.3.3", "d==", score=1.0),
+        ProtonLogicalServer("UK#2-alt", "2.2.2.2", "e==", score=0.2),  # same IP as UK#2
+    ]
+    # Best scores with unique name+IP: CH#1 skipped? CH#1 has best score 0.1, then
+    # UK#2-alt (0.2) skipped (IP taken by… wait CH#1 uses 1.1.1.1 first).
+    # Order: CH#1 (0.1), UK#2-alt (0.2, IP 2.2.2.2), UK#2 (0.5, IP taken), UK#3 (1.0), UK#1 (3.0, IP taken).
+    picked = pick_best_servers(servers, count=3)
+    assert [s.name for s in picked] == ["CH#1", "UK#2-alt", "UK#3"]
+    assert [s.entry_ip for s in picked] == ["1.1.1.1", "2.2.2.2", "3.3.3.3"]
+
+
+def test_pick_best_servers_raises_when_not_enough_distinct():
+    import pytest
+    from proton_mikrotik_wg.wg_credentials import pick_best_servers
+
+    servers = [
+        ProtonLogicalServer("UK#1", "1.1.1.1", "a==", score=1.0),
+        ProtonLogicalServer("UK#2", "1.1.1.1", "b==", score=2.0),
+    ]
+    with pytest.raises(ValueError, match="not enough distinct"):
+        pick_best_servers(servers, count=2)
+
+
 def test_fetch_vpn_max_tier_returns_none_when_vpn_call_fails():
     from proton_mikrotik_wg.wg_credentials import fetch_vpn_max_tier
 
@@ -291,7 +321,7 @@ def test_list_persistent_certificates_pages_results():
     assert "Mode=persistent" in session.api_request.call_args_list[0].args[0]
 
 
-def test_cleanup_previous_ha_certificates_deletes_old_prefix_matches():
+def test_cleanup_previous_ha_certificates_keeps_multiple_serials():
     from proton_mikrotik_wg.wg_credentials import cleanup_previous_ha_certificates
 
     session = MagicMock()
@@ -299,27 +329,18 @@ def test_cleanup_previous_ha_certificates_deletes_old_prefix_matches():
         {
             "Code": 1000,
             "Certificates": [
-                {"SerialNumber": "keep", "DeviceName": "ha-wg-proton-20260805-120000"},
-                {"SerialNumber": "old1", "DeviceName": "ha-wg-proton-20260801-010101"},
-                {"SerialNumber": "other", "DeviceName": "phone-config"},
-                {"SerialNumber": "bare", "DeviceName": "ha-wg-proton"},
+                {"SerialNumber": "keep1", "DeviceName": "ha-wg-proton-1-a"},
+                {"SerialNumber": "keep2", "DeviceName": "ha-wg-proton-2-a"},
+                {"SerialNumber": "old", "DeviceName": "ha-wg-proton-old"},
             ],
         },
-        {"Code": 1000},  # delete old1
-        {"Code": 1000},  # delete bare
+        {"Code": 1000},
     ]
     deleted, failed = cleanup_previous_ha_certificates(
-        session, keep_serial="keep"
+        session, keep_serials={"keep1", "keep2"}
     )
-    assert deleted == ["old1", "bare"]
+    assert deleted == ["old"]
     assert failed == []
-    delete_calls = [
-        c
-        for c in session.api_request.call_args_list
-        if c.kwargs.get("method") == "delete"
-    ]
-    assert len(delete_calls) == 2
-    assert delete_calls[0].args[1] == {"SerialNumber": "old1"}
 
 
 def test_cleanup_previous_ha_certificates_records_delete_failures():
@@ -561,3 +582,241 @@ def test_provision_wireguard_credential_uses_explicit_server():
     assert cred.server_public_key == "explicit=="
     assert session.api_request.call_count == 2
     assert session.api_request.call_args_list[0].args[0] == "/vpn/v1/certificate"
+
+
+def test_provision_wireguard_slots_creates_distinct_servers():
+    from proton_mikrotik_wg.wg_credentials import provision_wireguard_slots
+
+    session = MagicMock()
+    session.api_request.side_effect = [
+        {"Code": 1000, "VPN": {"MaxTier": 2}},
+        {
+            "Code": 1000,
+            "LogicalServers": [
+                {
+                    "Name": "UK#1",
+                    "Status": 1,
+                    "Load": 5,
+                    "Features": 0,
+                    "Tier": 2,
+                    "Score": 0.8,
+                    "Servers": [
+                        {"EntryIP": "1.1.1.1", "X25519PublicKey": "a=="}
+                    ],
+                },
+                {
+                    "Name": "UK#2",
+                    "Status": 1,
+                    "Load": 5,
+                    "Features": 0,
+                    "Tier": 2,
+                    "Score": 0.2,
+                    "Servers": [
+                        {"EntryIP": "2.2.2.2", "X25519PublicKey": "b=="}
+                    ],
+                },
+            ],
+        },
+        {
+            "Code": 1000,
+            "SerialNumber": "sn-1",
+            "DeviceName": "ha-wg-proton-1-x",
+            "ExpirationTime": 100,
+        },
+        {
+            "Code": 1000,
+            "SerialNumber": "sn-2",
+            "DeviceName": "ha-wg-proton-2-x",
+            "ExpirationTime": 200,
+        },
+        {"Code": 1000, "Certificates": []},
+    ]
+
+    slots = provision_wireguard_slots(session, count=2)
+    assert list(slots.keys()) == [1, 2]
+    assert slots[1].endpoint_host == "2.2.2.2"  # best score first
+    assert slots[2].endpoint_host == "1.1.1.1"
+    assert slots[1].device_name.startswith("ha-wg-proton-1-")
+    assert slots[2].device_name.startswith("ha-wg-proton-2-")
+
+
+def test_provision_wireguard_slots_one_slot_keeps_others():
+    from proton_mikrotik_wg.wg_credentials import (
+        WireGuardCredential,
+        provision_wireguard_slots,
+    )
+
+    existing = {
+        1: WireGuardCredential(
+            device_name="ha-wg-proton-1-old",
+            serial_number="keep-1",
+            client_private_key="sk==",
+            client_public_key="pk==",
+            server_public_key="spk==",
+            endpoint_host="1.1.1.1",
+            endpoint_port=51820,
+            client_address="10.2.0.2/32",
+            expiration_time=1,
+        ),
+        2: WireGuardCredential(
+            device_name="ha-wg-proton-2-old",
+            serial_number="old-2",
+            client_private_key="sk==",
+            client_public_key="pk==",
+            server_public_key="spk==",
+            endpoint_host="2.2.2.2",
+            endpoint_port=51820,
+            client_address="10.2.0.2/32",
+            expiration_time=1,
+        ),
+    }
+    session = MagicMock()
+    session.api_request.side_effect = [
+        {"Code": 1000, "VPN": {"MaxTier": 2}},
+        {
+            "Code": 1000,
+            "LogicalServers": [
+                {
+                    "Name": "UK#3",
+                    "Status": 1,
+                    "Load": 1,
+                    "Features": 0,
+                    "Tier": 2,
+                    "Score": 0.1,
+                    "Servers": [
+                        {"EntryIP": "3.3.3.3", "X25519PublicKey": "c=="}
+                    ],
+                },
+                {
+                    "Name": "UK#1",
+                    "Status": 1,
+                    "Load": 1,
+                    "Features": 0,
+                    "Tier": 2,
+                    "Score": 0.5,
+                    "Servers": [
+                        {"EntryIP": "1.1.1.1", "X25519PublicKey": "a=="}
+                    ],
+                },
+            ],
+        },
+        {
+            "Code": 1000,
+            "SerialNumber": "new-2",
+            "DeviceName": "ha-wg-proton-2-new",
+            "ExpirationTime": 200,
+        },
+        {
+            "Code": 1000,
+            "Certificates": [
+                {"SerialNumber": "keep-1", "DeviceName": "ha-wg-proton-1-old"},
+                {"SerialNumber": "new-2", "DeviceName": "ha-wg-proton-2-new"},
+                {"SerialNumber": "old-2", "DeviceName": "ha-wg-proton-2-old"},
+            ],
+        },
+        {"Code": 1000},  # delete old-2
+    ]
+    slots = provision_wireguard_slots(session, count=2, existing=existing, slot=2)
+    assert slots[1].serial_number == "keep-1"
+    assert slots[2].serial_number == "new-2"
+    assert slots[2].endpoint_host == "3.3.3.3"
+
+
+def test_provision_wireguard_slots_rejects_bad_count_or_slot():
+    import pytest
+    from proton_mikrotik_wg.wg_credentials import provision_wireguard_slots
+
+    session = MagicMock()
+    with pytest.raises(ValueError, match="at least 1"):
+        provision_wireguard_slots(session, count=0)
+    with pytest.raises(ValueError, match="between 1 and"):
+        provision_wireguard_slots(session, count=2, slot=3)
+
+
+def test_pick_best_servers_rejects_non_positive_count():
+    import pytest
+    from proton_mikrotik_wg.wg_credentials import pick_best_servers
+
+    with pytest.raises(ValueError, match="at least 1"):
+        pick_best_servers(
+            [ProtonLogicalServer("UK#1", "1.1.1.1", "a==")], count=0
+        )
+
+
+def test_provision_wireguard_slots_logs_cleanup_failures(caplog):
+    import logging
+
+    from proton_mikrotik_wg.wg_credentials import provision_wireguard_slots
+
+    session = MagicMock()
+    session.api_request.side_effect = [
+        {"Code": 1000, "VPN": {"MaxTier": 2}},
+        {
+            "Code": 1000,
+            "LogicalServers": [
+                {
+                    "Name": "UK#1",
+                    "Status": 1,
+                    "Load": 5,
+                    "Features": 0,
+                    "Tier": 2,
+                    "Score": 0.1,
+                    "Servers": [
+                        {"EntryIP": "1.1.1.1", "X25519PublicKey": "a=="}
+                    ],
+                },
+            ],
+        },
+        {
+            "Code": 1000,
+            "SerialNumber": "sn-1",
+            "DeviceName": "ha-wg-proton-1-x",
+            "ExpirationTime": 100,
+        },
+        {
+            "Code": 1000,
+            "Certificates": [
+                {"SerialNumber": "sn-1", "DeviceName": "ha-wg-proton-1-x"},
+                {"SerialNumber": "old", "DeviceName": "ha-wg-proton-old"},
+            ],
+        },
+        RuntimeError("insufficient scope"),
+    ]
+    with caplog.at_level(logging.WARNING):
+        provision_wireguard_slots(session, count=1)
+    assert "Could not delete" in caplog.text
+
+
+def test_cleanup_skips_empty_serial_and_non_ha_names():
+    from proton_mikrotik_wg.wg_credentials import cleanup_previous_ha_certificates
+
+    session = MagicMock()
+    session.api_request.side_effect = [
+        {
+            "Code": 1000,
+            "Certificates": [
+                {"SerialNumber": "", "DeviceName": "ha-wg-proton-x"},
+                {"SerialNumber": "phone", "DeviceName": "my-phone"},
+                {"SerialNumber": "keep", "DeviceName": "ha-wg-proton-keep"},
+            ],
+        },
+    ]
+    deleted, failed = cleanup_previous_ha_certificates(
+        session, keep_serial="keep"
+    )
+    assert deleted == []
+    assert failed == []
+
+
+def test_pick_best_servers_requires_servers():
+    import pytest
+    from proton_mikrotik_wg.wg_credentials import pick_best_servers
+
+    with pytest.raises(ValueError, match="no Proton servers"):
+        pick_best_servers([], count=1)
+
+
+def test_slot_device_name_uses_provided_stamp():
+    from proton_mikrotik_wg.wg_credentials import _slot_device_name
+
+    assert _slot_device_name(3, stamp="20260101-020304") == "ha-wg-proton-3-20260101-020304"

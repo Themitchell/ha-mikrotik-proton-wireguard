@@ -5,16 +5,8 @@ from __future__ import annotations
 from typing import Any, Mapping, Protocol
 
 from .const import (
-    CONF_WG_CLIENT_ADDRESS,
-    CONF_WG_CLIENT_PRIVATE_KEY,
-    CONF_WG_CLIENT_PUBLIC_KEY,
-    CONF_WG_DEVICE_NAME,
-    CONF_WG_ENDPOINT_HOST,
-    CONF_WG_ENDPOINT_PORT,
-    CONF_WG_EXPIRATION_TIME,
-    CONF_WG_SERIAL_NUMBER,
-    CONF_WG_SERVER_PUBLIC_KEY,
     DEFAULT_WG_INTERFACE,
+    MAX_TUNNEL_COUNT,
 )
 from .wg_credentials import WireGuardCredential
 
@@ -26,17 +18,21 @@ DEFAULT_KEEPALIVE = "25s"
 PROTON_WG_GATEWAY = "10.2.0.1"
 WAN_INTERFACE_LIST = "WAN"
 
-_REQUIRED_WG_FIELDS = (
-    CONF_WG_DEVICE_NAME,
-    CONF_WG_SERIAL_NUMBER,
-    CONF_WG_CLIENT_PRIVATE_KEY,
-    CONF_WG_CLIENT_PUBLIC_KEY,
-    CONF_WG_SERVER_PUBLIC_KEY,
-    CONF_WG_ENDPOINT_HOST,
-    CONF_WG_ENDPOINT_PORT,
-    CONF_WG_CLIENT_ADDRESS,
-    CONF_WG_EXPIRATION_TIME,
-)
+
+def endpoint_route_comment(slot: int) -> str:
+    return f"{ENDPOINT_ROUTE_COMMENT}-{slot}"
+
+
+def egress_route_comment(slot: int) -> str:
+    return f"{EGRESS_ROUTE_COMMENT}-{slot}"
+
+
+def egress_masq_comment(slot: int) -> str:
+    return f"{EGRESS_MASQ_COMMENT}-{slot}"
+
+
+def wan_list_comment(slot: int) -> str:
+    return f"{WAN_LIST_COMMENT}-{slot}"
 
 
 class RouterOsPath(Protocol):
@@ -104,25 +100,13 @@ class LibRouterOsClient:
 
 
 def wireguard_credential_from_entry_data(data: Mapping[str, Any]) -> WireGuardCredential:
-    """Rebuild a WireGuardCredential from config entry data."""
-    missing = [key for key in _REQUIRED_WG_FIELDS if key not in data]
-    if missing:
-        raise ValueError(
-            "WireGuard credential is not provisioned on this entry "
-            f"(missing {', '.join(missing)})"
-        )
-    return WireGuardCredential(
-        device_name=str(data[CONF_WG_DEVICE_NAME]),
-        serial_number=str(data[CONF_WG_SERIAL_NUMBER]),
-        client_private_key=str(data[CONF_WG_CLIENT_PRIVATE_KEY]),
-        client_public_key=str(data[CONF_WG_CLIENT_PUBLIC_KEY]),
-        server_public_key=str(data[CONF_WG_SERVER_PUBLIC_KEY]),
-        endpoint_host=str(data[CONF_WG_ENDPOINT_HOST]),
-        endpoint_port=int(data[CONF_WG_ENDPOINT_PORT]),
-        client_address=str(data[CONF_WG_CLIENT_ADDRESS]),
-        expiration_time=int(data[CONF_WG_EXPIRATION_TIME]),
-        dns=None,
-    )
+    """Rebuild a WireGuardCredential from config entry data (slot 1 / legacy)."""
+    from .wg_slots import slots_from_entry_data
+
+    slots = slots_from_entry_data(data)
+    if not slots:
+        raise ValueError("WireGuard credential is not provisioned on this entry")
+    return slots[min(slots)]
 
 
 def _upsert(
@@ -138,9 +122,11 @@ def _upsert(
         path.add(**{**match, **values})
 
 
-def _remove_by_comment(path: RouterOsPath, comment: str) -> None:
-    for row in path.select(comment=comment):
-        path.remove(row[".id"])
+def _remove_by_comment_prefix(path: RouterOsPath, prefix: str) -> None:
+    for row in path.select():
+        comment = str(row.get("comment") or "")
+        if comment == prefix or comment.startswith(f"{prefix}-"):
+            path.remove(row[".id"])
 
 
 def _set_pppoe_default_route_distance(
@@ -158,12 +144,18 @@ def _set_pppoe_default_route_distance(
 
 
 def is_egress_enabled(client: RouterOsClient) -> bool:
-    """Return True when the proton-wg-egress default route is present."""
-    return bool(client.path("ip", "route").select(comment=EGRESS_ROUTE_COMMENT))
+    """Return True when any proton-wg-egress route is present."""
+    for row in client.path("ip", "route").select():
+        comment = str(row.get("comment") or "")
+        if comment == EGRESS_ROUTE_COMMENT or comment.startswith(
+            f"{EGRESS_ROUTE_COMMENT}-"
+        ):
+            return True
+    return False
 
 
 def _ensure_wan_list_member(
-    client: RouterOsClient, *, wg_interface: str
+    client: RouterOsClient, *, wg_interface: str, comment: str
 ) -> None:
     members = client.path("interface", "list", "member")
     existing = members.select(list=WAN_INTERFACE_LIST, interface=wg_interface)
@@ -172,46 +164,52 @@ def _ensure_wan_list_member(
     members.add(
         list=WAN_INTERFACE_LIST,
         interface=wg_interface,
-        comment=WAN_LIST_COMMENT,
+        comment=comment,
     )
 
 
-def _remove_wan_list_member(
-    client: RouterOsClient, *, wg_interface: str
-) -> None:
+def _remove_wan_list_members(client: RouterOsClient) -> None:
     members = client.path("interface", "list", "member")
-    for row in members.select(
-        list=WAN_INTERFACE_LIST, interface=wg_interface, comment=WAN_LIST_COMMENT
-    ):
-        members.remove(row[".id"])
+    for row in members.select(list=WAN_INTERFACE_LIST):
+        comment = str(row.get("comment") or "")
+        if comment == WAN_LIST_COMMENT or comment.startswith(f"{WAN_LIST_COMMENT}-"):
+            members.remove(row[".id"])
 
 
 def enable_egress(
     client: RouterOsClient,
     *,
     wan_interface: str,
-    wg_interface: str = DEFAULT_WG_INTERFACE,
+    slots: Mapping[int, Any],
 ) -> None:
-    """Prefer whole-home egress via WireGuard; keep ISP as higher-distance backup."""
-    _ensure_wan_list_member(client, wg_interface=wg_interface)
-    _upsert(
-        client.path("ip", "route"),
-        match={"comment": EGRESS_ROUTE_COMMENT},
-        values={
-            "dst-address": "0.0.0.0/0",
-            "gateway": PROTON_WG_GATEWAY,
-            "distance": "1",
-        },
-    )
-    _upsert(
-        client.path("ip", "firewall", "nat"),
-        match={"comment": EGRESS_MASQ_COMMENT},
-        values={
-            "chain": "srcnat",
-            "action": "masquerade",
-            "out-interface": wg_interface,
-        },
-    )
+    """Prefer whole-home ECMP egress via all WireGuard slots; ISP as backup."""
+    if not slots:
+        raise ValueError("no WireGuard slots provisioned for egress")
+    for slot in sorted(slots):
+        from .wg_slots import wireguard_interface_name
+
+        iface = wireguard_interface_name(slot)
+        _ensure_wan_list_member(
+            client, wg_interface=iface, comment=wan_list_comment(slot)
+        )
+        _upsert(
+            client.path("ip", "route"),
+            match={"comment": egress_route_comment(slot)},
+            values={
+                "dst-address": "0.0.0.0/0",
+                "gateway": f"{PROTON_WG_GATEWAY}%{iface}",
+                "distance": "1",
+            },
+        )
+        _upsert(
+            client.path("ip", "firewall", "nat"),
+            match={"comment": egress_masq_comment(slot)},
+            values={
+                "chain": "srcnat",
+                "action": "masquerade",
+                "out-interface": iface,
+            },
+        )
     _set_pppoe_default_route_distance(client, wan_interface, "2")
 
 
@@ -219,12 +217,11 @@ def disable_egress(
     client: RouterOsClient,
     *,
     wan_interface: str,
-    wg_interface: str = DEFAULT_WG_INTERFACE,
 ) -> None:
-    """Remove VPN default route/NAT and restore ISP as primary default."""
-    _remove_by_comment(client.path("ip", "route"), EGRESS_ROUTE_COMMENT)
-    _remove_by_comment(client.path("ip", "firewall", "nat"), EGRESS_MASQ_COMMENT)
-    _remove_wan_list_member(client, wg_interface=wg_interface)
+    """Remove VPN ECMP routes/NAT and restore ISP as primary default."""
+    _remove_by_comment_prefix(client.path("ip", "route"), EGRESS_ROUTE_COMMENT)
+    _remove_by_comment_prefix(client.path("ip", "firewall", "nat"), EGRESS_MASQ_COMMENT)
+    _remove_wan_list_members(client)
     _set_pppoe_default_route_distance(client, wan_interface, "1")
 
 
@@ -233,14 +230,11 @@ def apply_tunnel_only(
     credential: WireGuardCredential,
     *,
     wan_gateway: str,
-    interface_name: str = DEFAULT_WG_INTERFACE,
+    interface_name: str,
+    route_comment: str,
     keepalive: str = DEFAULT_KEEPALIVE,
 ) -> None:
-    """Create or update wg-proton without changing default LAN egress.
-
-    Sets interface, peer, address, and an endpoint /32 pin via WAN.
-    Does not add a default route via the tunnel, NAT, kill-switch, or DNS.
-    """
+    """Create or update one WireGuard interface without changing LAN egress."""
     ifaces = client.path("interface", "wireguard")
     _upsert(
         ifaces,
@@ -277,9 +271,70 @@ def apply_tunnel_only(
     routes = client.path("ip", "route")
     _upsert(
         routes,
-        match={"comment": ENDPOINT_ROUTE_COMMENT},
+        match={"comment": route_comment},
         values={
             "dst-address": f"{credential.endpoint_host}/32",
             "gateway": wan_gateway,
         },
     )
+
+
+def _remove_wireguard_interface(client: RouterOsClient, interface_name: str) -> None:
+    peers = client.path("interface", "wireguard", "peers")
+    for row in peers.select(interface=interface_name):
+        peers.remove(row[".id"])
+    addresses = client.path("ip", "address")
+    for row in addresses.select(interface=interface_name):
+        addresses.remove(row[".id"])
+    ifaces = client.path("interface", "wireguard")
+    for row in ifaces.select(name=interface_name):
+        ifaces.remove(row[".id"])
+
+
+def apply_wireguard_slots(
+    client: RouterOsClient,
+    slots: Mapping[int, WireGuardCredential],
+    *,
+    wan_gateway: str,
+    tunnel_count: int,
+    keepalive: str = DEFAULT_KEEPALIVE,
+) -> None:
+    """Apply slots 1..tunnel_count; remove owned interfaces above that and legacy."""
+    from .wg_slots import wireguard_interface_name
+
+    active = {
+        slot: cred
+        for slot, cred in slots.items()
+        if 1 <= slot <= tunnel_count
+    }
+    for slot, cred in sorted(active.items()):
+        apply_tunnel_only(
+            client,
+            cred,
+            wan_gateway=wan_gateway,
+            interface_name=wireguard_interface_name(slot),
+            route_comment=endpoint_route_comment(slot),
+            keepalive=keepalive,
+        )
+
+    # Drop endpoint routes for inactive slots and legacy unscoped comment.
+    routes = client.path("ip", "route")
+    for row in list(routes.select()):
+        comment = str(row.get("comment") or "")
+        if comment == ENDPOINT_ROUTE_COMMENT:
+            routes.remove(row[".id"])
+            continue
+        if comment.startswith(f"{ENDPOINT_ROUTE_COMMENT}-"):
+            try:
+                slot = int(comment.rsplit("-", 1)[-1])
+            except ValueError:
+                continue
+            if slot not in active:
+                routes.remove(row[".id"])
+
+    # Remove orphan numbered interfaces and legacy wg-proton.
+    _remove_wireguard_interface(client, DEFAULT_WG_INTERFACE)
+    for slot in range(1, MAX_TUNNEL_COUNT + 1):
+        if slot in active:
+            continue
+        _remove_wireguard_interface(client, wireguard_interface_name(slot))

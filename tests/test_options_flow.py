@@ -18,6 +18,7 @@ from proton_mikrotik_wg.const import (
     CONF_MIKROTIK_USERNAME,
     CONF_MIKROTIK_USE_SSL,
     CONF_MIKROTIK_WAN_GATEWAY,
+    CONF_TUNNEL_COUNT,
 )
 from proton_mikrotik_wg.mikrotik_client import (
     CannotConnectMikroTik,
@@ -63,11 +64,13 @@ async def test_options_step_saves_on_successful_connect(options_flow):
                 CONF_MIKROTIK_PORT: 8729,
                 CONF_MIKROTIK_USE_SSL: True,
                 CONF_MIKROTIK_WAN_GATEWAY: "192.0.2.1",
+                CONF_TUNNEL_COUNT: 5,
             }
         )
     assert result["type"] == "create_entry"
     assert result["data"][CONF_MIKROTIK_HOST] == "mikrotik.lan"
     assert result["data"][CONF_MIKROTIK_WAN_GATEWAY] == "192.0.2.1"
+    assert result["data"][CONF_TUNNEL_COUNT] == 5
     check.assert_called_once()
 
 

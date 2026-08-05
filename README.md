@@ -1,8 +1,9 @@
 # Proton MikroTik WireGuard
 
-Home Assistant **custom integration** that logs into Proton VPN, provisions one
-WireGuard certificate, applies it to a MikroTik `wg-proton` interface, and
-exposes a switch to send whole-home traffic out through Proton VPN.
+Home Assistant **custom integration** that logs into Proton VPN, provisions
+**N** WireGuard certificates (1–20, default **3**), applies them to MikroTik
+`wg-proton-1` … `wg-proton-N`, and exposes a switch for **ECMP** whole-home
+egress across those tunnels.
 
 ## Layout
 
@@ -39,21 +40,6 @@ Login uses a gpg-free HTTP/SRP client so it works on typical Home Assistant
 containers (no system `gpg` required). Use your Proton **account** email
 (e.g. `you@proton.me`), not OpenVPN credentials.
 
-### Provision a WireGuard certificate
-
-Developer tools → **Actions** → `proton_mikrotik_wg.provision_wireguard`
-
-Keys match Proton’s account UI: raw Ed25519 public key for the certificate
-API, X25519 for the MikroTik WireGuard peer (raw `wg genkey` keys are rejected
-by Proton).
-
-Default device label: `ha-wg-proton-YYYYMMDD-HHMMSS` (UTC). Custom names must
-start with `ha-`. Each provision creates a **new** certificate, then best-effort
-deletes older `ha-wg-proton*` certs on the account (keeps non-HA configs). If
-Proton rejects delete (session scope), leftovers must be removed in the Proton
-account UI. The new credential is stored on the config entry. Service failures
-show the Proton/MikroTik error text instead of a generic “Unknown error”.
-
 ### Configure MikroTik (options)
 
 Settings → Devices & services → Proton MikroTik WireGuard → **Configure**:
@@ -65,41 +51,59 @@ Settings → Devices & services → Proton MikroTik WireGuard → **Configure**:
 | Port | `8729` (api-ssl) |
 | Use SSL | on |
 | WAN gateway | ISP gateway **name or IP** (e.g. `zen` for PPPoE) |
+| Tunnel count | `3` (1–20 simultaneous Proton tunnels) |
 
 Connectivity is checked with `/system/resource` over api-ssl. Ensure the HA
 host is allowed to reach the API port (input accept above any “drop non-admin”
-rules).
+rules). Proton accounts often cap WireGuard configs (~10); provision will
+surface Proton’s error if you exceed the account limit.
+
+### Provision WireGuard certificates
+
+Developer tools → **Actions** → `proton_mikrotik_wg.provision_wireguard`
+
+Keys match Proton’s account UI: raw Ed25519 public key for the certificate
+API, X25519 for the MikroTik WireGuard peer.
+
+- Omitting **slot** provisions **all** tunnels (1…`tunnel_count`) on **distinct**
+  Proton servers (best Score, no Secure Core/TOR).
+- Optional **slot** (1–20) reprovisions one tunnel only.
+- Device labels: `ha-wg-proton-{slot}-YYYYMMDD-HHMMSS` (UTC).
+- Best-effort delete of older `ha-wg-proton*` certs, keeping current slot
+  serials. Non-HA configs are left alone.
+
+Credentials are stored as `wg_slots` on the config entry (legacy single-key
+entries migrate to slot 1 on read).
 
 ### Apply tunnel-only to the router
 
 Developer tools → **Actions** → `proton_mikrotik_wg.apply_wireguard`
 
-This creates or updates:
+For each stored slot ≤ `tunnel_count`:
 
-- `/interface/wireguard` `wg-proton` + peer
-- `/ip/address` `10.2.0.2/32` on `wg-proton` with `network=10.2.0.1`
-- `/ip/route` endpoint `/32` via WAN gateway (comment `proton-wg-endpoint`)
+- `/interface/wireguard` `wg-proton-{slot}` + peer
+- `/ip/address` `10.2.0.2/32` with `network=10.2.0.1`
+- `/ip/route` endpoint `/32` via WAN (comment `proton-wg-endpoint-{slot}`)
 
-`provision_wireguard` picks a server like Proton’s UI (account `MaxTier`,
-excludes Secure Core/TOR, lowest `Score`). It does **not** change default LAN
-egress, NAT, kill-switch, or DNS. Do not push Proton DNS `10.2.0.1` to
-clients. The inbound remote-access WireGuard interface (`wireguard`) is left
-alone.
+Also removes legacy bare `wg-proton` and numbered interfaces above
+`tunnel_count`. Does **not** change default LAN egress, kill-switch, or DNS.
+Do not push Proton DNS `10.2.0.1` to clients. The inbound remote-access
+WireGuard interface (`wireguard`) is left alone.
 
-### VPN egress switch
+### VPN egress switch (ECMP)
 
 Entity: **Proton VPN egress** (`switch.proton_vpn_egress`).
 
 | State | Effect on MikroTik |
 |-------|--------------------|
-| On | Adds `wg-proton` to interface list `WAN` if needed, default `0.0.0.0/0` via `10.2.0.1` (comment `proton-wg-egress`), masquerade out `wg-proton` (`proton-wg-masq`), WAN `default-route-distance=2` |
-| Off | Removes those routes/NAT and our WAN-list member; restores WAN `default-route-distance=1` (normal ISP) |
+| On | For each active slot: WAN-list member, masq (`proton-wg-masq-{slot}`), equal-cost default `0.0.0.0/0` via `10.2.0.1%wg-proton-{slot}` (`proton-wg-egress-{slot}`); WAN `default-route-distance=2` |
+| Off | Removes those routes/NAT/WAN members; restores WAN `default-route-distance=1` |
 
 There is **no kill-switch**: when the VPN is off or down, traffic uses the ISP.
 Desired on/off state is stored in options and re-applied after HA restarts.
 
-Typical order: provision → configure MikroTik → `apply_wireguard` → toggle the
-egress switch on.
+Typical order: configure MikroTik (set tunnel count) → provision →
+`apply_wireguard` → toggle egress on.
 
 ## Tests
 

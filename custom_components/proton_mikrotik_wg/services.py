@@ -11,8 +11,9 @@ from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import HomeAssistantError
 
 from .const import (
-    DEFAULT_WG_DEVICE_NAME,
     DOMAIN,
+    MAX_TUNNEL_COUNT,
+    MIN_TUNNEL_COUNT,
     SERVICE_APPLY_WIREGUARD,
     SERVICE_PROVISION_WIREGUARD,
 )
@@ -21,7 +22,9 @@ _LOGGER = logging.getLogger(__name__)
 
 SERVICE_PROVISION_SCHEMA = vol.Schema(
     {
-        vol.Optional("device_name", default=DEFAULT_WG_DEVICE_NAME): str,
+        vol.Optional("slot"): vol.All(
+            vol.Coerce(int), vol.Range(min=MIN_TUNNEL_COUNT, max=MAX_TUNNEL_COUNT)
+        ),
         vol.Optional("entry_id"): str,
     }
 )
@@ -60,32 +63,34 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         return
 
     async def handle_provision(call: ServiceCall) -> None:
-        device_name = call.data.get("device_name", DEFAULT_WG_DEVICE_NAME)
+        slot = call.data.get("slot")
         try:
             manager = _manager_from_call(hass, call)
-            cred = await manager.async_provision_wireguard(device_name=device_name)
+            slots = await manager.async_provision_wireguard(slot=slot)
         except Exception as err:  # noqa: BLE001 — surface any Proton/local failure
             _reraise_service_error("provision_wireguard", err)
         _LOGGER.info(
-            "Provisioned Proton WireGuard device %s (serial %s) endpoint %s:%s",
-            cred.device_name,
-            cred.serial_number,
-            cred.endpoint_host,
-            cred.endpoint_port,
+            "Provisioned %s Proton WireGuard slot(s): %s",
+            len(slots),
+            ", ".join(
+                f"{n}={cred.device_name}@{cred.endpoint_host}"
+                for n, cred in sorted(slots.items())
+            ),
         )
 
     async def handle_apply(call: ServiceCall) -> None:
         try:
             manager = _manager_from_call(hass, call)
-            cred = await manager.async_apply_wireguard()
+            slots = await manager.async_apply_wireguard()
         except Exception as err:  # noqa: BLE001 — surface any Proton/local failure
             _reraise_service_error("apply_wireguard", err)
         _LOGGER.info(
-            "Applied Proton WireGuard tunnel-only config for %s to MikroTik "
-            "(endpoint %s:%s)",
-            cred.device_name,
-            cred.endpoint_host,
-            cred.endpoint_port,
+            "Applied %s Proton WireGuard tunnel(s) to MikroTik: %s",
+            len(slots),
+            ", ".join(
+                f"wg-proton-{n}@{cred.endpoint_host}"
+                for n, cred in sorted(slots.items())
+            ),
         )
 
     hass.services.async_register(

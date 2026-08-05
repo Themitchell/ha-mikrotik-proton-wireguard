@@ -12,17 +12,10 @@ from proton_mikrotik_wg.const import (
     CONF_ACCESS_TOKEN,
     CONF_REFRESH_TOKEN,
     CONF_SCOPE,
+    CONF_TUNNEL_COUNT,
     CONF_UID,
     CONF_USERNAME,
-    CONF_WG_CLIENT_ADDRESS,
-    CONF_WG_CLIENT_PRIVATE_KEY,
-    CONF_WG_CLIENT_PUBLIC_KEY,
-    CONF_WG_DEVICE_NAME,
-    CONF_WG_ENDPOINT_HOST,
-    CONF_WG_ENDPOINT_PORT,
-    CONF_WG_EXPIRATION_TIME,
-    CONF_WG_SERIAL_NUMBER,
-    CONF_WG_SERVER_PUBLIC_KEY,
+    CONF_WG_SLOTS,
     DEFAULT_WG_DEVICE_NAME,
 )
 from proton_mikrotik_wg.proton_auth import ProtonSessionData
@@ -30,7 +23,7 @@ from proton_mikrotik_wg.session_manager import ProtonSessionManager
 from proton_mikrotik_wg.wg_credentials import WireGuardCredential
 
 
-def _entry():
+def _entry(options=None):
     return SimpleNamespace(
         entry_id="abc",
         data={
@@ -40,12 +33,13 @@ def _entry():
             CONF_REFRESH_TOKEN: "refresh-1",
             CONF_SCOPE: ["full"],
         },
+        options=options if options is not None else {CONF_TUNNEL_COUNT: 2},
     )
 
 
 def _cred(**overrides):
     base = dict(
-        device_name=DEFAULT_WG_DEVICE_NAME,
+        device_name="ha-wg-proton-1-stamp",
         serial_number="sn-1",
         client_private_key="client-sk==",
         client_public_key="client-pk==",
@@ -61,7 +55,7 @@ def _cred(**overrides):
 
 
 @pytest.mark.asyncio
-async def test_async_provision_wireguard_uses_ha_device_name(hass):
+async def test_async_provision_wireguard_stores_slots(hass):
     entry = _entry()
     hass.config_entries = SimpleNamespace(async_update_entry=MagicMock())
     client = MagicMock()
@@ -77,38 +71,34 @@ async def test_async_provision_wireguard_uses_ha_device_name(hass):
     manager = ProtonSessionManager(
         hass, entry, client=client, refresh_interval=timedelta(hours=1)
     )
-    cred = _cred()
+    slots = {
+        1: _cred(),
+        2: _cred(
+            device_name="ha-wg-proton-2-stamp",
+            serial_number="sn-2",
+            endpoint_host="2.2.2.2",
+        ),
+    }
 
     with patch(
-        "proton_mikrotik_wg.session_manager.provision_wireguard_credential",
-        return_value=cred,
+        "proton_mikrotik_wg.session_manager.provision_wireguard_slots",
+        return_value=slots,
     ) as provision:
         result = await manager.async_provision_wireguard()
 
-    assert result is cred
+    assert result is slots
     provision.assert_called_once()
-    device_name = provision.call_args.kwargs["device_name"]
-    assert device_name.startswith("ha-wg-proton-")
-    assert device_name != DEFAULT_WG_DEVICE_NAME
-    suffix = device_name.removeprefix("ha-wg-proton-")
-    assert len(suffix) == 15 and suffix[8] == "-" and suffix.replace("-", "").isdigit()
+    assert provision.call_args.kwargs["count"] == 2
+    assert provision.call_args.kwargs["slot"] is None
     hass.config_entries.async_update_entry.assert_called_once()
     updated = hass.config_entries.async_update_entry.call_args.kwargs["data"]
-    assert updated[CONF_WG_DEVICE_NAME] == DEFAULT_WG_DEVICE_NAME
-    assert updated[CONF_WG_SERIAL_NUMBER] == "sn-1"
-    assert updated[CONF_WG_CLIENT_PRIVATE_KEY] == "client-sk=="
-    assert updated[CONF_WG_ENDPOINT_HOST] == "1.2.3.4"
-    assert updated[CONF_WG_ENDPOINT_PORT] == 51820
-    assert updated[CONF_WG_SERVER_PUBLIC_KEY] == "server-pk=="
-    assert updated[CONF_WG_CLIENT_PUBLIC_KEY] == "client-pk=="
-    assert updated[CONF_WG_CLIENT_ADDRESS] == "10.2.0.2/32"
-    assert updated[CONF_WG_EXPIRATION_TIME] == 1_700_000_000
-    # Session tokens preserved.
+    assert CONF_WG_SLOTS in updated
+    assert len(updated[CONF_WG_SLOTS]) == 2
     assert updated[CONF_ACCESS_TOKEN] == "access-1"
 
 
 @pytest.mark.asyncio
-async def test_async_provision_wireguard_allows_custom_ha_name(hass):
+async def test_async_provision_wireguard_one_slot(hass):
     entry = _entry()
     hass.config_entries = SimpleNamespace(async_update_entry=MagicMock())
     client = MagicMock()
@@ -123,30 +113,9 @@ async def test_async_provision_wireguard_allows_custom_ha_name(hass):
     manager = ProtonSessionManager(
         hass, entry, client=client, refresh_interval=timedelta(hours=1)
     )
-
     with patch(
-        "proton_mikrotik_wg.session_manager.provision_wireguard_credential",
-        return_value=_cred(device_name="ha-router"),
+        "proton_mikrotik_wg.session_manager.provision_wireguard_slots",
+        return_value={1: _cred()},
     ) as provision:
-        await manager.async_provision_wireguard(device_name="ha-router")
-
-    assert provision.call_args.kwargs["device_name"] == "ha-router"
-
-
-@pytest.mark.asyncio
-async def test_async_provision_wireguard_rejects_non_ha_prefix(hass):
-    entry = _entry()
-    hass.config_entries = SimpleNamespace(async_update_entry=MagicMock())
-    client = MagicMock()
-    client.data = ProtonSessionData(
-        username="user@proton.me",
-        uid="uid-1",
-        access_token="access-1",
-        refresh_token="refresh-1",
-        scope=("full",),
-    )
-    manager = ProtonSessionManager(
-        hass, entry, client=client, refresh_interval=timedelta(hours=1)
-    )
-    with pytest.raises(ValueError, match="ha-"):
-        await manager.async_provision_wireguard(device_name="router-1")
+        await manager.async_provision_wireguard(slot=1)
+    assert provision.call_args.kwargs["slot"] == 1

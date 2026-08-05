@@ -34,15 +34,26 @@ def _mikrotik_options(**overrides):
     return options
 
 
-def _entry(options=None):
+def _entry(options=None, data=None):
     return SimpleNamespace(
         entry_id="abc",
-        data={
+        data=data
+        if data is not None
+        else {
             "username": "user@proton.me",
             "uid": "uid-1",
             "access_token": "access-1",
             "refresh_token": "refresh-1",
             "scope": ["full"],
+            "wg_device_name": "ha-wg-proton",
+            "wg_serial_number": "sn-1",
+            "wg_client_private_key": "sk==",
+            "wg_client_public_key": "pk==",
+            "wg_server_public_key": "spk==",
+            "wg_endpoint_host": "1.2.3.4",
+            "wg_endpoint_port": 51820,
+            "wg_client_address": "10.2.0.2/32",
+            "wg_expiration_time": 1,
         },
         options=options if options is not None else _mikrotik_options(),
     )
@@ -80,6 +91,7 @@ async def test_async_set_egress_enable_and_persist(hass):
 
     enable.assert_called_once()
     assert enable.call_args.kwargs["wan_interface"] == "zen"
+    assert 1 in enable.call_args.kwargs["slots"]
     wrapper.close.assert_called_once()
     updated = hass.config_entries.async_update_entry.call_args.kwargs["options"]
     assert updated[CONF_EGRESS_ENABLED] is True
@@ -141,6 +153,78 @@ async def test_async_set_egress_requires_mikrotik(hass):
     )
     with pytest.raises(ValueError, match="MikroTik"):
         await manager.async_set_egress(True)
+
+
+@pytest.mark.asyncio
+async def test_async_set_egress_requires_provisioned_slots(hass):
+    entry = _entry(
+        data={
+            "username": "user@proton.me",
+            "uid": "uid-1",
+            "access_token": "access-1",
+            "refresh_token": "refresh-1",
+            "scope": ["full"],
+        }
+    )
+    hass.config_entries = SimpleNamespace(async_update_entry=MagicMock())
+    manager = ProtonSessionManager(
+        hass, entry, client=MagicMock(), refresh_interval=timedelta(hours=1)
+    )
+    with pytest.raises(ValueError, match="not provisioned"):
+        await manager.async_set_egress(True)
+
+
+@pytest.mark.asyncio
+async def test_async_provision_drops_legacy_flat_keys(hass):
+    entry = _entry()
+    entry.data = {
+        **entry.data,
+        "wg_serial_number": "legacy",
+        "wg_device_name": "ha-wg-proton",
+        "wg_client_private_key": "x",
+        "wg_client_public_key": "x",
+        "wg_server_public_key": "x",
+        "wg_endpoint_host": "1.1.1.1",
+        "wg_endpoint_port": 51820,
+        "wg_client_address": "10.2.0.2/32",
+        "wg_expiration_time": 1,
+    }
+    hass.config_entries = SimpleNamespace(async_update_entry=MagicMock())
+    client = MagicMock()
+    client.data = ProtonSessionData(
+        username="user@proton.me",
+        uid="uid-1",
+        access_token="access-1",
+        refresh_token="refresh-1",
+        scope=("full",),
+    )
+    client.live_session.return_value = MagicMock()
+    manager = ProtonSessionManager(
+        hass, entry, client=client, refresh_interval=timedelta(hours=1)
+    )
+    from proton_mikrotik_wg.wg_credentials import WireGuardCredential
+
+    slots = {
+        1: WireGuardCredential(
+            device_name="ha-wg-proton-1-x",
+            serial_number="sn-new",
+            client_private_key="sk==",
+            client_public_key="pk==",
+            server_public_key="spk==",
+            endpoint_host="9.9.9.9",
+            endpoint_port=51820,
+            client_address="10.2.0.2/32",
+            expiration_time=1,
+        )
+    }
+    with patch(
+        "proton_mikrotik_wg.session_manager.provision_wireguard_slots",
+        return_value=slots,
+    ):
+        await manager.async_provision_wireguard()
+    updated = hass.config_entries.async_update_entry.call_args.kwargs["data"]
+    assert "wg_serial_number" not in updated
+    assert "wg_slots" in updated
 
 
 @pytest.mark.asyncio

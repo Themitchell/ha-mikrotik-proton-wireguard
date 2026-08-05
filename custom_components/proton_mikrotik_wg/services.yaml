@@ -1,14 +1,18 @@
 provision_wireguard:
-  name: Provision WireGuard credential
-  description: Create one Proton WireGuard certificate labeled for Home Assistant (ha-...).
+  name: Provision WireGuard credential(s)
+  description: >
+    Create Proton WireGuard certificates for all configured tunnels
+    (or one optional slot). Uses distinct Proton servers when provisioning all.
   fields:
-    device_name:
-      name: Device name
-      description: Label shown in Proton (must start with ha-).
-      example: ha-wg-proton
-      default: ha-wg-proton
+    slot:
+      name: Slot
+      description: Optional 1-based tunnel slot to reprovision. Omit to provision all.
+      example: 1
       selector:
-        text:
+        number:
+          min: 1
+          max: 20
+          mode: box
     entry_id:
       name: Config entry ID
       description: Optional. Defaults to the only configured entry.
@@ -17,7 +21,9 @@ provision_wireguard:
 
 apply_wireguard:
   name: Apply WireGuard to MikroTik
-  description: Push the stored Proton credential onto wg-proton as a tunnel-only config (no LAN egress via VPN yet).
+  description: >
+    Push stored Proton credentials onto wg-proton-1..N as tunnel-only configs
+    (no LAN egress via VPN yet).
   fields:
     entry_id:
       name: Config entry ID

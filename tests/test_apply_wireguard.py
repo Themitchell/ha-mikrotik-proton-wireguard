@@ -18,6 +18,7 @@ from proton_mikrotik_wg.const import (
     CONF_MIKROTIK_WAN_GATEWAY,
     CONF_REFRESH_TOKEN,
     CONF_SCOPE,
+    CONF_TUNNEL_COUNT,
     CONF_UID,
     CONF_USERNAME,
     CONF_WG_CLIENT_ADDRESS,
@@ -64,6 +65,7 @@ def _mikrotik_options(**overrides):
         CONF_MIKROTIK_PORT: 8729,
         CONF_MIKROTIK_USE_SSL: True,
         CONF_MIKROTIK_WAN_GATEWAY: "192.0.2.1",
+        CONF_TUNNEL_COUNT: 1,
     }
     options.update(overrides)
     return options
@@ -84,7 +86,7 @@ def test_wireguard_credential_from_entry_data_requires_fields():
 
 
 @pytest.mark.asyncio
-async def test_async_apply_wireguard_calls_tunnel_apply(hass):
+async def test_async_apply_wireguard_calls_slot_apply(hass):
     entry = SimpleNamespace(entry_id="abc", data=_wg_data(), options=_mikrotik_options())
     client = MagicMock()
     client.data = ProtonSessionData(
@@ -106,7 +108,7 @@ async def test_async_apply_wireguard_calls_tunnel_apply(hass):
             return_value=api,
         ) as open_api,
         patch(
-            "proton_mikrotik_wg.session_manager.apply_tunnel_only",
+            "proton_mikrotik_wg.session_manager.apply_wireguard_slots",
         ) as apply,
         patch(
             "proton_mikrotik_wg.session_manager.LibRouterOsClient",
@@ -115,11 +117,13 @@ async def test_async_apply_wireguard_calls_tunnel_apply(hass):
     ):
         result = await manager.async_apply_wireguard()
 
-    assert result.device_name == "ha-wg-proton"
+    assert list(result.keys()) == [1]
+    assert result[1].device_name == "ha-wg-proton"
     open_api.assert_called_once()
     apply.assert_called_once()
     assert apply.call_args.args[0] is wrapper
     assert apply.call_args.kwargs["wan_gateway"] == "192.0.2.1"
+    assert apply.call_args.kwargs["tunnel_count"] == 1
     wrapper.close.assert_called_once()
 
 
