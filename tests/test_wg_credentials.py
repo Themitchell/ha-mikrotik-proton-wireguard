@@ -33,6 +33,11 @@ def test_create_wireguard_credential_registers_certificate():
     keys = WireGuardKeyPair(
         private_key="client-sk==",
         public_key="client-pk==",
+        api_public_key=(
+            "-----BEGIN PUBLIC KEY-----\n"
+            "MCowBQYDK2VwAyEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\n"
+            "-----END PUBLIC KEY-----\n"
+        ),
     )
 
     cred = create_wireguard_credential(
@@ -58,7 +63,8 @@ def test_create_wireguard_credential_registers_certificate():
     session.api_request.assert_called_once_with(
         "/vpn/v1/certificate",
         {
-            "ClientPublicKey": "client-pk==",
+            "ClientPublicKey": keys.api_public_key,
+            "ClientPublicKeyMode": "EC",
             "Mode": "persistent",
             "DeviceName": "ha-UK-1",
             "Features": {
@@ -77,7 +83,7 @@ def test_create_wireguard_credential_registers_certificate():
     )
 
 
-def test_generate_wireguard_keypair_returns_base64_keys():
+def test_generate_wireguard_keypair_returns_wg_and_api_keys():
     from proton_mikrotik_wg.wg_credentials import generate_wireguard_keypair
 
     keys = generate_wireguard_keypair()
@@ -86,6 +92,10 @@ def test_generate_wireguard_keypair_returns_base64_keys():
     # Standard WireGuard keys are 32 raw bytes → 44 chars base64 with padding.
     assert len(keys.private_key) == 44
     assert len(keys.public_key) == 44
+    # Proton certificate API expects Ed25519 PKIX PEM, not WireGuard X25519.
+    assert keys.api_public_key.startswith("-----BEGIN PUBLIC KEY-----")
+    assert "-----END PUBLIC KEY-----" in keys.api_public_key
+    assert keys.api_public_key != keys.public_key
 
 
 def test_list_logical_servers_parses_online_instances():
