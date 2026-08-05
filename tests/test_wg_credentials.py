@@ -54,6 +54,8 @@ def test_create_wireguard_credential_registers_certificate():
     assert cred.endpoint_port == 51820
     assert cred.client_address == "10.2.0.2/32"
     assert cred.expiration_time == 1_700_000_000
+    assert cred.server_name == "UK#1"
+    assert cred.provisioned_at > 0
     # DNS must never be Proton's 10.2.0.1 — Pi-hole only on LAN.
     assert cred.dns is None
 

@@ -12,7 +12,9 @@ from .const import (
     CONF_WG_ENDPOINT_HOST,
     CONF_WG_ENDPOINT_PORT,
     CONF_WG_EXPIRATION_TIME,
+    CONF_WG_PROVISIONED_AT,
     CONF_WG_SERIAL_NUMBER,
+    CONF_WG_SERVER_NAME,
     CONF_WG_SERVER_PUBLIC_KEY,
     CONF_WG_SLOTS,
     DEFAULT_WG_INTERFACE,
@@ -50,6 +52,7 @@ def _credential_from_mapping(row: Mapping[str, Any]) -> WireGuardCredential:
             "WireGuard slot is incomplete "
             f"(missing {', '.join(missing)})"
         )
+    provisioned_raw = row.get(CONF_WG_PROVISIONED_AT, 0)
     return WireGuardCredential(
         device_name=str(row[CONF_WG_DEVICE_NAME]),
         serial_number=str(row[CONF_WG_SERIAL_NUMBER]),
@@ -61,11 +64,13 @@ def _credential_from_mapping(row: Mapping[str, Any]) -> WireGuardCredential:
         client_address=str(row[CONF_WG_CLIENT_ADDRESS]),
         expiration_time=int(row[CONF_WG_EXPIRATION_TIME]),
         dns=None,
+        server_name=str(row.get(CONF_WG_SERVER_NAME) or ""),
+        provisioned_at=int(provisioned_raw or 0),
     )
 
 
 def _slot_dict(slot: int, cred: WireGuardCredential) -> dict[str, Any]:
-    return {
+    row = {
         "slot": slot,
         CONF_WG_DEVICE_NAME: cred.device_name,
         CONF_WG_SERIAL_NUMBER: cred.serial_number,
@@ -77,6 +82,11 @@ def _slot_dict(slot: int, cred: WireGuardCredential) -> dict[str, Any]:
         CONF_WG_CLIENT_ADDRESS: cred.client_address,
         CONF_WG_EXPIRATION_TIME: cred.expiration_time,
     }
+    if cred.server_name:
+        row[CONF_WG_SERVER_NAME] = cred.server_name
+    if cred.provisioned_at:
+        row[CONF_WG_PROVISIONED_AT] = cred.provisioned_at
+    return row
 
 
 def slots_from_entry_data(

@@ -117,6 +117,20 @@ Entity: **Proton VPN egress** (`switch.proton_vpn_egress`).
 There is **no kill-switch**: when the VPN is off or down, traffic uses the ISP.
 Desired on/off state is stored in options and re-applied after HA restarts.
 
+### Tunnel sensors
+
+Diagnostic sensors **Proton WG tunnel 1…N** (one per provisioned slot):
+
+| Field | Meaning |
+|-------|---------|
+| State | Proton logical server name (e.g. `UK#42`); `unknown` until that slot is (re)provisioned on 0.5.0+ |
+| `device_name` | Certificate label in Proton (`ha-wg-proton-…`) |
+| `endpoint_host` / `endpoint_port` | Peer endpoint |
+| `provisioned_at` | Last refresh time (UTC ISO) |
+| `serial_number` | Proton certificate serial |
+
+Existing tunnels keep working; names/timestamps appear after the next renew or a fresh provision.
+
 Typical order: configure MikroTik (tunnel count + optional exit country) →
 provision → `apply_wireguard` → toggle egress on.
 

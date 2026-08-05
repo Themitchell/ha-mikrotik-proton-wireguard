@@ -150,6 +150,53 @@ def test_entry_data_from_slots_round_trip():
     assert restored[2].device_name == "ha-wg-proton-2"
 
 
+def test_slots_round_trip_server_name_and_provisioned_at():
+    from proton_mikrotik_wg.const import CONF_WG_PROVISIONED_AT, CONF_WG_SERVER_NAME
+
+    cred = WireGuardCredential(
+        device_name="ha-wg-proton-1",
+        serial_number="sn-1",
+        client_private_key="sk==",
+        client_public_key="pk==",
+        server_public_key="spk==",
+        endpoint_host="1.1.1.1",
+        endpoint_port=51820,
+        client_address="10.2.0.2/32",
+        expiration_time=100,
+        server_name="UK#42",
+        provisioned_at=1_700_000_100,
+    )
+    payload = entry_data_from_slots({1: cred})
+    row = payload[CONF_WG_SLOTS][0]
+    assert row[CONF_WG_SERVER_NAME] == "UK#42"
+    assert row[CONF_WG_PROVISIONED_AT] == 1_700_000_100
+    restored = slots_from_entry_data(payload)[1]
+    assert restored.server_name == "UK#42"
+    assert restored.provisioned_at == 1_700_000_100
+
+
+def test_slots_legacy_rows_default_empty_server_metadata():
+    data = {
+        CONF_WG_SLOTS: [
+            {
+                "slot": 1,
+                CONF_WG_DEVICE_NAME: "ha-wg-proton-1",
+                CONF_WG_SERIAL_NUMBER: "sn-1",
+                CONF_WG_CLIENT_PRIVATE_KEY: "sk==",
+                CONF_WG_CLIENT_PUBLIC_KEY: "pk==",
+                CONF_WG_SERVER_PUBLIC_KEY: "spk==",
+                CONF_WG_ENDPOINT_HOST: "1.1.1.1",
+                CONF_WG_ENDPOINT_PORT: 51820,
+                CONF_WG_CLIENT_ADDRESS: "10.2.0.2/32",
+                CONF_WG_EXPIRATION_TIME: 100,
+            }
+        ]
+    }
+    cred = slots_from_entry_data(data)[1]
+    assert cred.server_name == ""
+    assert cred.provisioned_at == 0
+
+
 def test_slots_from_entry_data_skips_non_mapping_rows():
     data = {
         CONF_WG_SLOTS: [
