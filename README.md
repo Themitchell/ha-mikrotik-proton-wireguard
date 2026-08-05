@@ -43,6 +43,9 @@ containers (no system `gpg` required). Use your Proton **account** email
 
 Developer tools → **Actions** → `proton_mikrotik_wg.provision_wireguard`
 
+Keys match Proton’s account UI: Ed25519 PEM for the certificate API, X25519
+for the MikroTik WireGuard peer (raw `wg genkey` keys are rejected by Proton).
+
 Default device label: `ha-wg-proton-YYYYMMDD-HHMMSS` (UTC). Custom names must
 start with `ha-`. Each provision creates a **new** certificate, then best-effort
 deletes older `ha-wg-proton*` certs on the account (keeps non-HA configs). If

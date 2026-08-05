@@ -45,10 +45,11 @@ class ProtonLogicalServer:
 
 @dataclass(frozen=True)
 class WireGuardKeyPair:
-    """WireGuard X25519 key material (standard base64 encodings)."""
+    """Keys for MikroTik (X25519) and Proton's certificate API (Ed25519 PEM)."""
 
     private_key: str
     public_key: str
+    api_public_key: str
 
 
 @dataclass(frozen=True)
@@ -68,17 +69,38 @@ class WireGuardCredential:
 
 
 def generate_wireguard_keypair() -> WireGuardKeyPair:
-    """Generate a local WireGuard X25519 keypair (no Proton API call)."""
-    import base64
+    """Generate Proton-compatible keys: Ed25519 for API, X25519 for WireGuard.
 
+    Proton's certificate endpoint rejects standard ``wg genkey`` X25519 public
+    keys ("Unable to read the key, please provide a valid EC key"). The account
+    UI registers an Ed25519 public key (PKIX PEM) and the WireGuard config uses
+    the X25519 private key derived from that Ed25519 seed.
+    """
+    import base64
+    import hashlib
+
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
     from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
 
-    private = X25519PrivateKey.generate()
-    private_raw = private.private_bytes_raw()
-    public_raw = private.public_key().public_bytes_raw()
+    ed_private = Ed25519PrivateKey.generate()
+    seed = ed_private.private_bytes_raw()
+    api_public_key = ed_private.public_key().public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo,
+    ).decode("ascii")
+
+    digest = bytearray(hashlib.sha512(seed).digest()[:32])
+    digest[0] &= 248
+    digest[31] &= 127
+    digest[31] |= 64
+    x_private = X25519PrivateKey.from_private_bytes(bytes(digest))
     return WireGuardKeyPair(
-        private_key=base64.b64encode(private_raw).decode("ascii"),
-        public_key=base64.b64encode(public_raw).decode("ascii"),
+        private_key=base64.b64encode(x_private.private_bytes_raw()).decode("ascii"),
+        public_key=base64.b64encode(
+            x_private.public_key().public_bytes_raw()
+        ).decode("ascii"),
+        api_public_key=api_public_key,
     )
 
 
@@ -142,7 +164,8 @@ def create_wireguard_credential(
 ) -> WireGuardCredential:
     """Register a persistent WireGuard certificate for one Proton server."""
     payload = {
-        "ClientPublicKey": keys.public_key,
+        "ClientPublicKey": keys.api_public_key,
+        "ClientPublicKeyMode": "EC",
         "Mode": "persistent",
         "DeviceName": device_name,
         "Features": {
