@@ -7,6 +7,10 @@ from typing import Any, Protocol
 
 DEFAULT_WG_PORT = 51820
 DEFAULT_CLIENT_ADDRESS = "10.2.0.2/32"
+# Proton logical Features bits: Secure Core=1, TOR=2 (same as Proton WebClients).
+FEATURE_SECURE_CORE = 1
+FEATURE_TOR = 2
+FEATURE_SECURE_CORE_OR_TOR = FEATURE_SECURE_CORE | FEATURE_TOR
 
 
 class ProtonApiSession(Protocol):
@@ -72,13 +76,24 @@ def generate_wireguard_keypair() -> WireGuardKeyPair:
 
 
 def list_logical_servers(session: ProtonApiSession) -> list[ProtonLogicalServer]:
-    """Fetch online shared Proton logical servers with at least one instance."""
+    """Fetch online shared Proton logical servers suitable for plain WireGuard.
+
+    Mirrors Proton's WireGuard UI filters: online, not Secure Core/TOR, and at
+    least one instance with an X25519 public key.
+    """
     payload = session.api_request("/vpn/logicals", method="get")
     servers: list[ProtonLogicalServer] = []
     for logical in payload.get("LogicalServers") or []:
         if logical.get("Status") != 1:
             continue
-        instances = logical.get("Servers") or []
+        features = int(logical.get("Features") or 0)
+        if features & FEATURE_SECURE_CORE_OR_TOR:
+            continue
+        instances = [
+            instance
+            for instance in (logical.get("Servers") or [])
+            if instance.get("X25519PublicKey")
+        ]
         if not instances:
             continue
         instance = instances[0]

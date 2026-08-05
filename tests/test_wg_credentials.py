@@ -99,6 +99,9 @@ def test_list_logical_servers_parses_online_instances():
                 "Name": "UK#1",
                 "Status": 1,
                 "Load": 12,
+                "Features": 0,
+                "Tier": 0,
+                "Score": 1.5,
                 "Servers": [
                     {
                         "EntryIP": "1.2.3.4",
@@ -110,6 +113,9 @@ def test_list_logical_servers_parses_online_instances():
                 "Name": "UK#2",
                 "Status": 0,  # offline
                 "Load": 1,
+                "Features": 0,
+                "Tier": 0,
+                "Score": 0.1,
                 "Servers": [
                     {
                         "EntryIP": "5.6.7.8",
@@ -121,6 +127,9 @@ def test_list_logical_servers_parses_online_instances():
                 "Name": "UK#3",
                 "Status": 1,
                 "Load": 40,
+                "Features": 0,
+                "Tier": 0,
+                "Score": 2.0,
                 "Servers": [],  # no instances
             },
         ],
@@ -132,6 +141,92 @@ def test_list_logical_servers_parses_online_instances():
     assert servers[0].entry_ip == "1.2.3.4"
     assert servers[0].load == 12
     session.api_request.assert_called_once_with("/vpn/logicals", method="get")
+
+
+def test_list_logical_servers_skips_secure_core_and_tor():
+    """Match Proton UI: (Features & 3) == 0 excludes Secure Core and TOR."""
+    from proton_mikrotik_wg.wg_credentials import list_logical_servers
+
+    session = MagicMock()
+    session.api_request.return_value = {
+        "Code": 1000,
+        "LogicalServers": [
+            {
+                "Name": "CH-SE#1",
+                "Status": 1,
+                "Load": 1,
+                "Features": 1,  # Secure Core
+                "Tier": 2,
+                "Score": 0.1,
+                "Servers": [
+                    {"EntryIP": "9.9.9.9", "X25519PublicKey": "sc=="}
+                ],
+            },
+            {
+                "Name": "IS#1",
+                "Status": 1,
+                "Load": 2,
+                "Features": 2,  # TOR
+                "Tier": 2,
+                "Score": 0.2,
+                "Servers": [
+                    {"EntryIP": "8.8.8.8", "X25519PublicKey": "tor=="}
+                ],
+            },
+            {
+                "Name": "UK#1",
+                "Status": 1,
+                "Load": 50,
+                "Features": 0,
+                "Tier": 0,
+                "Score": 1.0,
+                "Servers": [
+                    {"EntryIP": "1.2.3.4", "X25519PublicKey": "ok=="}
+                ],
+            },
+        ],
+    }
+
+    servers = list_logical_servers(session)
+    assert [s.name for s in servers] == ["UK#1"]
+
+
+def test_list_logical_servers_respects_max_tier():
+    """Only return logicals the account tier is allowed to use."""
+    from proton_mikrotik_wg.wg_credentials import list_logical_servers
+
+    session = MagicMock()
+    session.api_request.return_value = {
+        "Code": 1000,
+        "LogicalServers": [
+            {
+                "Name": "FREE#1",
+                "Status": 1,
+                "Load": 10,
+                "Features": 0,
+                "Tier": 0,
+                "Score": 2.0,
+                "Servers": [
+                    {"EntryIP": "1.1.1.1", "X25519PublicKey": "free=="}
+                ],
+            },
+            {
+                "Name": "PLUS#1",
+                "Status": 1,
+                "Load": 5,
+                "Features": 0,
+                "Tier": 2,
+                "Score": 0.5,
+                "Servers": [
+                    {"EntryIP": "2.2.2.2", "X25519PublicKey": "plus=="}
+                ],
+            },
+        ],
+    }
+
+    servers = list_logical_servers(session, max_tier=0)
+    assert [s.name for s in servers] == ["FREE#1"]
+    assert servers[0].score == 2.0
 
 
 def test_pick_least_loaded_server():
