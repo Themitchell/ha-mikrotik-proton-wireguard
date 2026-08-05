@@ -45,7 +45,7 @@ class ProtonLogicalServer:
 
 @dataclass(frozen=True)
 class WireGuardKeyPair:
-    """Keys for MikroTik (X25519) and Proton's certificate API (Ed25519 PEM)."""
+    """Keys for MikroTik (X25519) and Proton's certificate API (Ed25519)."""
 
     private_key: str
     public_key: str
@@ -73,21 +73,19 @@ def generate_wireguard_keypair() -> WireGuardKeyPair:
 
     Proton's certificate endpoint rejects standard ``wg genkey`` X25519 public
     keys ("Unable to read the key, please provide a valid EC key"). The account
-    UI registers an Ed25519 public key (PKIX PEM) and the WireGuard config uses
-    the X25519 private key derived from that Ed25519 seed.
+    UI posts a raw Ed25519 public key (base64 of 32 bytes) and uses the X25519
+    private key derived from that Ed25519 seed in the WireGuard config.
     """
     import base64
     import hashlib
 
-    from cryptography.hazmat.primitives import serialization
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
     from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
 
     ed_private = Ed25519PrivateKey.generate()
     seed = ed_private.private_bytes_raw()
-    api_public_key = ed_private.public_key().public_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PublicFormat.SubjectPublicKeyInfo,
+    api_public_key = base64.b64encode(
+        ed_private.public_key().public_bytes_raw()
     ).decode("ascii")
 
     digest = bytearray(hashlib.sha512(seed).digest()[:32])
@@ -165,7 +163,6 @@ def create_wireguard_credential(
     """Register a persistent WireGuard certificate for one Proton server."""
     payload = {
         "ClientPublicKey": keys.api_public_key,
-        "ClientPublicKeyMode": "EC",
         "Mode": "persistent",
         "DeviceName": device_name,
         "Features": {
