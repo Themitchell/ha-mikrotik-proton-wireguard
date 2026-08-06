@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -86,6 +86,59 @@ async def test_options_step_saves_on_successful_connect(options_flow):
     assert result["data"][CONF_VPN_EXIT_COUNTRY] == "GB"
     assert result["data"][CONF_WG_REFRESH_INTERVAL] == WG_REFRESH_DAILY
     check.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_options_step_persists_vpn_bypass_cidrs(options_flow):
+    from proton_mikrotik_wg.const import CONF_VPN_BYPASS_CIDRS
+
+    text = "10.0.5.50\n10.0.30.0/24"
+    with (
+        patch("proton_mikrotik_wg.config_flow.check_mikrotik_connection"),
+        patch.object(options_flow, "_async_exit_countries", return_value=[]),
+    ):
+        result = await options_flow.async_step_init(
+            {
+                CONF_MIKROTIK_HOST: "mikrotik.lan",
+                CONF_MIKROTIK_USERNAME: "admin",
+                CONF_MIKROTIK_PASSWORD: "secret",
+                CONF_MIKROTIK_PORT: 8729,
+                CONF_MIKROTIK_USE_SSL: True,
+                CONF_MIKROTIK_WAN_GATEWAY: "zen",
+                CONF_TUNNEL_COUNT: 3,
+                CONF_VPN_BYPASS_CIDRS: text,
+            }
+        )
+    assert result["type"] == "create_entry"
+    assert result["data"][CONF_VPN_BYPASS_CIDRS] == text
+
+
+@pytest.mark.asyncio
+async def test_options_step_reapplies_egress_when_enabled(options_flow):
+    from proton_mikrotik_wg.const import CONF_EGRESS_ENABLED, CONF_VPN_BYPASS_CIDRS
+
+    manager = SimpleNamespace(async_set_egress=AsyncMock())
+    options_flow._config_entry.options = {CONF_EGRESS_ENABLED: True}
+    options_flow.hass.data = {DOMAIN: {"abc": manager}}
+
+    with (
+        patch("proton_mikrotik_wg.config_flow.check_mikrotik_connection"),
+        patch.object(options_flow, "_async_exit_countries", return_value=[]),
+    ):
+        result = await options_flow.async_step_init(
+            {
+                CONF_MIKROTIK_HOST: "mikrotik.lan",
+                CONF_MIKROTIK_USERNAME: "admin",
+                CONF_MIKROTIK_PASSWORD: "secret",
+                CONF_MIKROTIK_PORT: 8729,
+                CONF_MIKROTIK_USE_SSL: True,
+                CONF_MIKROTIK_WAN_GATEWAY: "zen",
+                CONF_TUNNEL_COUNT: 3,
+                CONF_VPN_BYPASS_CIDRS: "10.0.5.50",
+            }
+        )
+    assert result["type"] == "create_entry"
+    manager.async_set_egress.assert_awaited_once_with(True)
 
 
 @pytest.mark.asyncio

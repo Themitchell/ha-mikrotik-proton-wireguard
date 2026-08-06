@@ -19,6 +19,7 @@ from .const import (
     CONF_MIKROTIK_USE_SSL,
     CONF_MIKROTIK_WAN_GATEWAY,
     CONF_TUNNEL_COUNT,
+    CONF_VPN_BYPASS_CIDRS,
     CONF_VPN_EXIT_COUNTRY,
     CONF_WG_REFRESH_INTERVAL,
     CONF_WG_REFRESH_LAST_AT,
@@ -46,6 +47,7 @@ from .wg_refresh import (
     oldest_slots,
 )
 from .wg_slots import entry_data_from_slots, slots_from_entry_data
+from .vpn_bypass import parse_vpn_bypass_cidrs
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
@@ -332,12 +334,20 @@ class ProtonSessionManager:
         slots = self._require_slots() if enabled else {}
         count = self.tunnel_count()
         active = {s: c for s, c in slots.items() if s <= count}
+        bypass_cidrs = parse_vpn_bypass_cidrs(
+            str(options.get(CONF_VPN_BYPASS_CIDRS, "") or "")
+        )
 
         def _set() -> None:
             client = self._open_mikrotik(options)
             try:
                 if enabled:
-                    enable_egress(client, wan_interface=wan_interface, slots=active)
+                    enable_egress(
+                        client,
+                        wan_interface=wan_interface,
+                        slots=active,
+                        bypass_cidrs=bypass_cidrs,
+                    )
                 else:
                     disable_egress(client, wan_interface=wan_interface)
             finally:

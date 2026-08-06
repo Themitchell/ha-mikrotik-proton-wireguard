@@ -482,3 +482,27 @@ def test_disable_egress_removes_bypass_artifacts():
     assert not api.path("ip", "firewall", "mangle").select(comment=BYPASS_MANGLE_COMMENT)
     assert not api.path("ip", "route").select(comment=BYPASS_ROUTE_COMMENT)
 
+
+def test_remove_bypass_ignores_unrelated_address_list_rows():
+    from proton_mikrotik_wg.mikrotik_wg import BYPASS_ADDRESS_LIST
+
+    api = FakeRouterOs()
+    _seed_pppoe(api)
+    api.path("ip", "firewall", "address-list").add(
+        list=BYPASS_ADDRESS_LIST,
+        address="10.0.9.9/32",
+        comment="manual-keep",
+    )
+    enable_egress(
+        api,
+        wan_interface="zen",
+        slots={1: _cred()},
+        bypass_cidrs=["10.0.5.50/32"],
+    )
+    enable_egress(api, wan_interface="zen", slots={1: _cred()}, bypass_cidrs=[])
+
+    kept = api.path("ip", "firewall", "address-list").select(list=BYPASS_ADDRESS_LIST)
+    assert len(kept) == 1
+    assert kept[0]["comment"] == "manual-keep"
+    assert kept[0]["address"] == "10.0.9.9/32"
+

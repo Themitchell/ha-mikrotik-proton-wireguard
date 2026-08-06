@@ -20,6 +20,7 @@ from .const import (
     CONF_TOTP,
     CONF_TUNNEL_COUNT,
     CONF_USERNAME,
+    CONF_VPN_BYPASS_CIDRS,
     CONF_VPN_EXIT_COUNTRY,
     CONF_WG_REFRESH_INTERVAL,
     CONF_WG_REFRESH_LAST_AT,
@@ -267,15 +268,25 @@ class ProtonMikroTikWgOptionsFlow(config_entries.OptionsFlow):
                     ),
                     CONF_VPN_EXIT_COUNTRY: country,
                     CONF_WG_REFRESH_INTERVAL: cadence,
+                    CONF_VPN_BYPASS_CIDRS: str(
+                        user_input.get(CONF_VPN_BYPASS_CIDRS, "") or ""
+                    ),
                 }
                 if CONF_WG_REFRESH_LAST_AT in previous:
                     data[CONF_WG_REFRESH_LAST_AT] = previous[CONF_WG_REFRESH_LAST_AT]
                 if CONF_EGRESS_ENABLED in previous:
                     data[CONF_EGRESS_ENABLED] = previous[CONF_EGRESS_ENABLED]
-                return self.async_create_entry(
+                result = self.async_create_entry(
                     title="MikroTik",
                     data=data,
                 )
+                if previous.get(CONF_EGRESS_ENABLED):
+                    manager = self.hass.data.get(DOMAIN, {}).get(
+                        self.config_entry.entry_id
+                    )
+                    if manager is not None:
+                        await manager.async_set_egress(True)
+                return result
 
         return self.async_show_form(
             step_id="init",
