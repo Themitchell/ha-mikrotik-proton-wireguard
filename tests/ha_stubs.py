@@ -123,6 +123,12 @@ class OptionsFlow:
     def async_create_entry(
         self, *, title: str, data: dict[str, Any]
     ) -> dict[str, Any]:
+        entry = self.config_entry
+        if entry is not None:
+            options = getattr(entry, "options", None)
+            if type(options) is dict:
+                options.clear()
+                options.update(data)
         return {
             "type": FlowResultType.CREATE_ENTRY,
             "title": title,

@@ -54,6 +54,7 @@ Settings → Devices & services → Proton MikroTik WireGuard → **Configure**:
 | Tunnel count | `3` (1–20 simultaneous Proton tunnels) |
 | VPN exit country | `Any` (default) or one ISO code from Proton’s live server list |
 | Credential refresh | `monthly` (default), or `weekly` / `daily` |
+| VPN bypass CIDRs | Optional multiline list of LAN IPv4 hosts/CIDRs that stay on ISP |
 
 Connectivity is checked with `/system/resource` over api-ssl. Ensure the HA
 host is allowed to reach the API port (input accept above any “drop non-admin”
@@ -116,6 +117,29 @@ Entity: **Proton VPN egress** (`switch.proton_vpn_egress`).
 
 There is **no kill-switch**: when the VPN is off or down, traffic uses the ISP.
 Desired on/off state is stored in options and re-applied after HA restarts.
+
+### VPN bypass (LAN clients on ISP)
+
+While egress is **on**, listed LAN clients still use the ISP WAN (useful for
+streaming TVs or IoT subnets that break behind Proton). Configure →
+**VPN bypass CIDRs**: one IPv4 address or CIDR per line (`#` comments and blank
+lines allowed), e.g.:
+
+```text
+# Living-room TV
+10.0.5.50
+# Radiators VLAN
+10.0.30.0/24
+```
+
+On enable (and after Configure save while egress is on), MikroTik gets:
+
+- address-list `proton-wg-bypass`
+- prerouting mangle → routing-mark `proton-wg-isp`
+- marked default route via the configured WAN gateway
+
+Empty list or egress **off** removes those owned rules. Main Proton ECMP
+defaults stay unmarked.
 
 ### Tunnel sensors
 

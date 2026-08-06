@@ -28,6 +28,9 @@
 - DNS hard rule: LAN clients use Pi-hole only; never push Proton DNS
   (`10.2.0.1`) to clients; do not leak internal DNS names.
 - Kill-switch (VPN on) and intentional ISP bypass are separate behaviours.
+- Optional `vpn_bypass_cidrs` (multiline IPv4/CIDR) marks selected LAN clients
+  for ISP egress while whole-home VPN is on; do not add MAC/hostname or
+  destination-based exclusions unless requested.
 
 ## Development process
 
