@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Mapping, Protocol
+from typing import Any, Mapping, Protocol, Sequence
 
 from .const import (
     DEFAULT_WG_INTERFACE,
@@ -14,6 +14,10 @@ ENDPOINT_ROUTE_COMMENT = "proton-wg-endpoint"
 EGRESS_ROUTE_COMMENT = "proton-wg-egress"
 EGRESS_MASQ_COMMENT = "proton-wg-masq"
 WAN_LIST_COMMENT = "proton-wg-wan"
+BYPASS_ADDRESS_LIST = "proton-wg-bypass"
+BYPASS_MANGLE_COMMENT = "proton-wg-bypass"
+BYPASS_ROUTE_COMMENT = "proton-wg-bypass-default"
+BYPASS_ROUTING_MARK = "proton-wg-isp"
 DEFAULT_KEEPALIVE = "25s"
 PROTON_WG_GATEWAY = "10.2.0.1"
 WAN_INTERFACE_LIST = "WAN"
@@ -176,11 +180,72 @@ def _remove_wan_list_members(client: RouterOsClient) -> None:
             members.remove(row[".id"])
 
 
+def _remove_bypass_artifacts(client: RouterOsClient) -> None:
+    """Remove owned ISP-bypass address-list, mangle, and marked default route."""
+    address_list = client.path("ip", "firewall", "address-list")
+    for row in list(address_list.select(list=BYPASS_ADDRESS_LIST)):
+        comment = str(row.get("comment") or "")
+        if comment == BYPASS_MANGLE_COMMENT or comment.startswith(
+            f"{BYPASS_MANGLE_COMMENT}-"
+        ):
+            address_list.remove(row[".id"])
+    _remove_by_comment_prefix(
+        client.path("ip", "firewall", "mangle"), BYPASS_MANGLE_COMMENT
+    )
+    routes = client.path("ip", "route")
+    for row in list(routes.select()):
+        if str(row.get("comment") or "") == BYPASS_ROUTE_COMMENT:
+            routes.remove(row[".id"])
+
+
+def sync_vpn_bypass(
+    client: RouterOsClient,
+    *,
+    wan_interface: str,
+    bypass_cidrs: Sequence[str],
+) -> None:
+    """Sync LAN clients that should use ISP while VPN egress is on."""
+    _remove_bypass_artifacts(client)
+    if not bypass_cidrs:
+        return
+
+    address_list = client.path("ip", "firewall", "address-list")
+    for cidr in bypass_cidrs:
+        address_list.add(
+            list=BYPASS_ADDRESS_LIST,
+            address=cidr,
+            comment=BYPASS_MANGLE_COMMENT,
+        )
+
+    _upsert(
+        client.path("ip", "firewall", "mangle"),
+        match={"comment": BYPASS_MANGLE_COMMENT},
+        values={
+            "chain": "prerouting",
+            "src-address-list": BYPASS_ADDRESS_LIST,
+            "action": "mark-routing",
+            "new-routing-mark": BYPASS_ROUTING_MARK,
+            "passthrough": False,
+        },
+    )
+    _upsert(
+        client.path("ip", "route"),
+        match={"comment": BYPASS_ROUTE_COMMENT},
+        values={
+            "dst-address": "0.0.0.0/0",
+            "gateway": wan_interface,
+            "routing-mark": BYPASS_ROUTING_MARK,
+            "distance": "1",
+        },
+    )
+
+
 def enable_egress(
     client: RouterOsClient,
     *,
     wan_interface: str,
     slots: Mapping[int, Any],
+    bypass_cidrs: Sequence[str] | None = None,
 ) -> None:
     """Prefer whole-home ECMP egress via all WireGuard slots; ISP as backup."""
     if not slots:
@@ -211,6 +276,11 @@ def enable_egress(
             },
         )
     _set_pppoe_default_route_distance(client, wan_interface, "2")
+    sync_vpn_bypass(
+        client,
+        wan_interface=wan_interface,
+        bypass_cidrs=list(bypass_cidrs or ()),
+    )
 
 
 def disable_egress(
@@ -219,6 +289,7 @@ def disable_egress(
     wan_interface: str,
 ) -> None:
     """Remove VPN ECMP routes/NAT and restore ISP as primary default."""
+    _remove_bypass_artifacts(client)
     _remove_by_comment_prefix(client.path("ip", "route"), EGRESS_ROUTE_COMMENT)
     _remove_by_comment_prefix(client.path("ip", "firewall", "nat"), EGRESS_MASQ_COMMENT)
     _remove_wan_list_members(client)

@@ -393,3 +393,92 @@ def test_wan_list_member_idempotent():
         list="WAN", interface="wg-proton-1"
     )
     assert len(members) == 1
+
+
+def test_enable_egress_with_bypass_creates_address_list_mangle_and_marked_route():
+    from proton_mikrotik_wg.mikrotik_wg import (
+        BYPASS_ADDRESS_LIST,
+        BYPASS_MANGLE_COMMENT,
+        BYPASS_ROUTE_COMMENT,
+        BYPASS_ROUTING_MARK,
+    )
+
+    api = FakeRouterOs()
+    _seed_pppoe(api)
+    enable_egress(
+        api,
+        wan_interface="zen",
+        slots={1: _cred()},
+        bypass_cidrs=["10.0.5.50/32", "10.0.30.0/24"],
+    )
+
+    entries = api.path("ip", "firewall", "address-list").select(
+        list=BYPASS_ADDRESS_LIST
+    )
+    assert {e["address"] for e in entries} == {"10.0.5.50/32", "10.0.30.0/24"}
+    assert all(e["comment"].startswith(BYPASS_MANGLE_COMMENT) for e in entries)
+
+    mangle = api.path("ip", "firewall", "mangle").select(comment=BYPASS_MANGLE_COMMENT)
+    assert len(mangle) == 1
+    assert mangle[0]["chain"] == "prerouting"
+    assert mangle[0]["src-address-list"] == BYPASS_ADDRESS_LIST
+    assert mangle[0]["action"] == "mark-routing"
+    assert mangle[0]["new-routing-mark"] == BYPASS_ROUTING_MARK
+    assert mangle[0]["passthrough"] is False or mangle[0]["passthrough"] == "no"
+
+    route = api.path("ip", "route").select(comment=BYPASS_ROUTE_COMMENT)
+    assert len(route) == 1
+    assert route[0]["dst-address"] == "0.0.0.0/0"
+    assert route[0]["gateway"] == "zen"
+    assert route[0]["routing-mark"] == BYPASS_ROUTING_MARK
+    assert route[0]["distance"] == "1"
+
+
+def test_enable_egress_empty_bypass_removes_artifacts():
+    from proton_mikrotik_wg.mikrotik_wg import (
+        BYPASS_ADDRESS_LIST,
+        BYPASS_MANGLE_COMMENT,
+        BYPASS_ROUTE_COMMENT,
+    )
+
+    api = FakeRouterOs()
+    _seed_pppoe(api)
+    enable_egress(
+        api,
+        wan_interface="zen",
+        slots={1: _cred()},
+        bypass_cidrs=["10.0.5.50/32"],
+    )
+    enable_egress(api, wan_interface="zen", slots={1: _cred()}, bypass_cidrs=[])
+
+    assert not api.path("ip", "firewall", "address-list").select(
+        list=BYPASS_ADDRESS_LIST
+    )
+    assert not api.path("ip", "firewall", "mangle").select(comment=BYPASS_MANGLE_COMMENT)
+    assert not api.path("ip", "route").select(comment=BYPASS_ROUTE_COMMENT)
+    assert is_egress_enabled(api) is True
+
+
+def test_disable_egress_removes_bypass_artifacts():
+    from proton_mikrotik_wg.mikrotik_wg import (
+        BYPASS_ADDRESS_LIST,
+        BYPASS_MANGLE_COMMENT,
+        BYPASS_ROUTE_COMMENT,
+    )
+
+    api = FakeRouterOs()
+    _seed_pppoe(api)
+    enable_egress(
+        api,
+        wan_interface="zen",
+        slots={1: _cred()},
+        bypass_cidrs=["10.0.30.0/24"],
+    )
+    disable_egress(api, wan_interface="zen")
+
+    assert not api.path("ip", "firewall", "address-list").select(
+        list=BYPASS_ADDRESS_LIST
+    )
+    assert not api.path("ip", "firewall", "mangle").select(comment=BYPASS_MANGLE_COMMENT)
+    assert not api.path("ip", "route").select(comment=BYPASS_ROUTE_COMMENT)
+
