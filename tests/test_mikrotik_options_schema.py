@@ -98,3 +98,18 @@ def test_mikrotik_options_schema_rejects_tunnel_count_out_of_range():
         mikrotik_options_schema()(_base(**{CONF_TUNNEL_COUNT: 0}))
     with pytest.raises(vol.Invalid):
         mikrotik_options_schema()(_base(**{CONF_TUNNEL_COUNT: 21}))
+
+
+def test_mikrotik_options_schema_accepts_vpn_bypass_cidrs():
+    from proton_mikrotik_wg.const import CONF_VPN_BYPASS_CIDRS
+
+    text = "10.0.5.50\n10.0.30.0/24"
+    parsed = mikrotik_options_schema()(_base(**{CONF_VPN_BYPASS_CIDRS: text}))
+    assert parsed[CONF_VPN_BYPASS_CIDRS] == text
+
+
+def test_mikrotik_options_schema_rejects_invalid_vpn_bypass_cidrs():
+    from proton_mikrotik_wg.const import CONF_VPN_BYPASS_CIDRS
+
+    with pytest.raises(vol.Invalid):
+        mikrotik_options_schema()(_base(**{CONF_VPN_BYPASS_CIDRS: "not-an-ip"}))

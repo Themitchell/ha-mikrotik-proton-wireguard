@@ -15,6 +15,7 @@ from .const import (
     CONF_TOTP,
     CONF_TUNNEL_COUNT,
     CONF_USERNAME,
+    CONF_VPN_BYPASS_CIDRS,
     CONF_VPN_EXIT_COUNTRY,
     CONF_WG_REFRESH_INTERVAL,
     DEFAULT_MIKROTIK_PORT,
@@ -26,6 +27,17 @@ from .const import (
     VPN_EXIT_COUNTRY_ANY,
     WG_REFRESH_INTERVALS,
 )
+from .vpn_bypass import parse_vpn_bypass_cidrs
+
+
+def _vpn_bypass_cidrs(value: object) -> str:
+    text = "" if value is None else str(value)
+    try:
+        parse_vpn_bypass_cidrs(text)
+    except ValueError as err:
+        raise vol.Invalid(str(err)) from err
+    return text
+
 
 PROTON_CREDENTIALS_SCHEMA = vol.Schema(
     {
@@ -102,5 +114,9 @@ def mikrotik_options_schema(
                     CONF_WG_REFRESH_INTERVAL, DEFAULT_WG_REFRESH_INTERVAL
                 ),
             ): vol.In(list(WG_REFRESH_INTERVALS)),
+            vol.Optional(
+                CONF_VPN_BYPASS_CIDRS,
+                default=current.get(CONF_VPN_BYPASS_CIDRS, ""),
+            ): _vpn_bypass_cidrs,
         }
     )

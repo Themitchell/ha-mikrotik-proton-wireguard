@@ -45,7 +45,11 @@
           "mikrotik_password": "API password",
           "mikrotik_port": "API port",
           "mikrotik_use_ssl": "Use API-SSL",
-          "mikrotik_wan_gateway": "WAN gateway IP"
+          "mikrotik_wan_gateway": "WAN gateway IP",
+          "tunnel_count": "Number of WireGuard tunnels",
+          "vpn_exit_country": "VPN exit country",
+          "wg_refresh_interval": "Credential refresh cadence",
+          "vpn_bypass_cidrs": "LAN IPs/CIDRs that bypass VPN (one per line)"
         }
       }
     },

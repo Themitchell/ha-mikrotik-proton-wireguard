@@ -48,6 +48,7 @@ DEFAULT_MIKROTIK_USE_SSL = True
 SERVICE_APPLY_WIREGUARD = "apply_wireguard"
 
 CONF_EGRESS_ENABLED = "egress_enabled"
+CONF_VPN_BYPASS_CIDRS = "vpn_bypass_cidrs"
 
 CONF_WG_REFRESH_INTERVAL = "wg_refresh_interval"
 CONF_WG_REFRESH_LAST_AT = "wg_refresh_last_at"

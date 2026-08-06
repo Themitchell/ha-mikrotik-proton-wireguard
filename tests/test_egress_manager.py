@@ -92,9 +92,51 @@ async def test_async_set_egress_enable_and_persist(hass):
     enable.assert_called_once()
     assert enable.call_args.kwargs["wan_interface"] == "zen"
     assert 1 in enable.call_args.kwargs["slots"]
+    assert enable.call_args.kwargs["bypass_cidrs"] == []
     wrapper.close.assert_called_once()
     updated = hass.config_entries.async_update_entry.call_args.kwargs["options"]
     assert updated[CONF_EGRESS_ENABLED] is True
+
+
+@pytest.mark.asyncio
+async def test_async_set_egress_passes_parsed_bypass_cidrs(hass):
+    from proton_mikrotik_wg.const import CONF_VPN_BYPASS_CIDRS
+
+    entry = _entry(
+        options=_mikrotik_options(
+            **{CONF_VPN_BYPASS_CIDRS: "10.0.5.50\n# radiators\n10.0.30.0/24"}
+        )
+    )
+    hass.config_entries = SimpleNamespace(async_update_entry=MagicMock())
+    client = MagicMock()
+    client.data = ProtonSessionData(
+        username="user@proton.me",
+        uid="uid-1",
+        access_token="access-1",
+        refresh_token="refresh-1",
+        scope=("full",),
+    )
+    manager = ProtonSessionManager(
+        hass, entry, client=client, refresh_interval=timedelta(hours=1)
+    )
+
+    with (
+        patch(
+            "proton_mikrotik_wg.session_manager.open_mikrotik_api",
+            return_value=MagicMock(),
+        ),
+        patch(
+            "proton_mikrotik_wg.session_manager.LibRouterOsClient",
+            return_value=MagicMock(),
+        ),
+        patch("proton_mikrotik_wg.session_manager.enable_egress") as enable,
+    ):
+        await manager.async_set_egress(True)
+
+    assert enable.call_args.kwargs["bypass_cidrs"] == [
+        "10.0.5.50/32",
+        "10.0.30.0/24",
+    ]
 
 
 @pytest.mark.asyncio
